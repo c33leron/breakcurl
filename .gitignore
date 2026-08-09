@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+breakcurl-output*/
+breakcurl.config.json
+*.tgz
+.env
+.env.*
+!.env.example
+.DS_Store

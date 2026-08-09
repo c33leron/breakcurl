@@ -1,0 +1,64 @@
+{
+  "name": "breakcurl",
+  "version": "0.1.0",
+  "description": "Security-focused negative API testing from one working cURL",
+  "type": "module",
+  "bin": {
+    "breakcurl": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "breakcurl.config.example.json",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check": "npm run build --silent && node dist/cli.js",
+    "demo": "npm run build --silent && node dist/cli.js demo",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
+    "prepack": "npm run build",
+    "audit:prod": "npm audit --omit=dev",
+    "lint": "biome check .",
+    "test": "npm run build --silent && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "api",
+    "curl",
+    "api-security",
+    "negative-testing",
+    "security-testing",
+    "testing",
+    "cli"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "picocolors": "^1.1.1",
+    "shell-quote": "^1.8.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.4",
+    "@types/node": "^22.15.3",
+    "@types/shell-quote": "^1.7.5",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  },
+  "overrides": {
+    "nanoid": "3.3.18",
+    "postcss": "8.5.25",
+    "bundle-require": {
+      "esbuild": "0.27.2"
+    },
+    "tsup": {
+      "esbuild": "0.27.2"
+    }
+  }
+}

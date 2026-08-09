@@ -1,0 +1,16 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.4/schema.json",
+  "files": {
+    "includes": ["**", "!dist", "!coverage", "!breakcurl-output"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  }
+}

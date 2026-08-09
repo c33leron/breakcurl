@@ -1,0 +1,29 @@
+{
+  "profile": "full",
+  "maxCases": 90,
+  "onlyPaths": ["$.email", "$.age", "$.profile"],
+  "excludePaths": ["$.profile.internalNote"],
+  "expectAuth": true,
+  "customCases": [
+    {
+      "name": "Email без домена должен быть отклонён",
+      "path": "$.email",
+      "operation": "set",
+      "value": "qa@",
+      "expect": "reject"
+    },
+    {
+      "name": "Неизвестный enum должен быть отклонён",
+      "path": "$.profile.status",
+      "operation": "set",
+      "value": "BREAKCURL_UNKNOWN",
+      "expect": "reject"
+    },
+    {
+      "name": "Необязательное поле можно удалить",
+      "path": "$.profile.middleName",
+      "operation": "remove",
+      "expect": "accept"
+    }
+  ]
+}
