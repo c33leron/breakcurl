@@ -1,17 +1,19 @@
-# История изменений
+# Changelog
 
-## 0.1.0 — готовится к первому релизу
+## 0.1.0 — preparing the first release
 
-- Интерактивная вставка Copy as cURL и безопасный предварительный просмотр.
-- Профили `quick`, `negative`, `security` и `full` с лимитом до 200 проверок.
-- Breadth-first распределение мутаций по JSON paths.
-- Boundary, structure, protocol и безопасные injection-проверки.
-- Auth-probes без credentials и с невалидными credentials.
-- Строгий security-контракт `--expect-auth`.
-- Пользовательские `--set`, `--remove`, `--only`, `--exclude` и JSON-конфиг.
-- `--dry-run` с гарантированными нулём HTTP-запросов.
-- Классификации `PASS`, `INFO`, `WARN`, `FAIL`, `ERROR`, severity и confidence.
-- Поиск stack trace, внутренних путей, database errors, credentials и небезопасного HTML reflection.
-- Усиленное маскирование секретов и безопасные replay cURL.
-- Человеческий `report.md` и очищенный `report.json` без response body.
-- CI для Node.js 20/22/24, Dependabot и CodeQL security-extended.
+- Interactive Copy as cURL input with a sanitized preflight.
+- English interface by default with complete Russian localization through `--lang ru`.
+- `quick`, `negative`, `security`, and `full` profiles with a 200-check hard limit.
+- Breadth-first mutation distribution across JSON paths.
+- Boundary, structure, protocol, and constrained injection checks.
+- Auth probes with missing and invalid credentials.
+- Strict authentication contract through `--expect-auth`.
+- Custom `--set`, `--remove`, `--only`, `--exclude`, and JSON config checks.
+- `--dry-run` with a guaranteed zero HTTP requests.
+- `PASS`, `INFO`, `WARN`, `FAIL`, and `ERROR` classifications with separate severity and confidence.
+- Detection of stack traces, internal paths, database errors, credentials, and unsafe HTML reflection.
+- Redacted reports and replay cURLs without response bodies.
+- Rate-limit safety stop on the first `HTTP 429`.
+- Live terminal progress with a compact run summary.
+- CI for Node.js 20/22/24, Dependabot, and CodeQL security-extended.

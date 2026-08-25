@@ -1,320 +1,188 @@
-# BreakCurl v0.1
+<h1 align="center">BreakCurl</h1>
 
-> **Один рабочий cURL превращается в управляемый набор negative и security-проверок API.**
+<p align="center">
+  <strong>Paste one working cURL and see how your API handles invalid data, broken authorization, and unsafe responses.</strong>
+</p>
 
-BreakCurl локально разбирает скопированный cURL, проверяет исходный запрос, затем изменяет по одному элементу запроса и показывает, где API падает, слабо валидирует данные, принимает запрос без корректной авторизации или раскрывает внутреннюю информацию.
+<p align="center">
+  <code>Local-first</code> · <code>Zero cloud</code> · <code>Zero shell execution</code> · <code>Evidence-ready reports</code>
+</p>
 
-Без OpenAPI. Без написания автотестов. Без аккаунта и облака.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/c33leron/BreakCurl/main/docs/assets/breakcurl-cli.png" alt="BreakCurl running negative and security API checks in a terminal" width="100%">
+</p>
 
-## Самый простой запуск
+BreakCurl parses a browser's `Copy as cURL` as data, verifies the original request, and mutates one JSON element at a time. It highlights crashes, weak validation, authorization gaps, and exposed internal details.
 
-Требуется [Node.js 20 или новее](https://nodejs.org/). После публикации BreakCurl в npm ничего устанавливать глобально не нужно:
+No OpenAPI specification, test code, account, cloud service, or global installation required.
 
-```bash
-npx --yes breakcurl@0.1.0 --dry-run
-```
+## Run
 
-Дальше:
-
-1. В браузере откройте `DevTools → Network`.
-2. Нажмите правой кнопкой на рабочий API-запрос и выберите `Copy → Copy as cURL (bash)`.
-3. Вставьте весь cURL в терминал.
-4. Нажмите `Enter` на пустой строке.
-
-`--dry-run` покажет план и отправит ровно `0` HTTP-запросов. Если адрес, профиль и количество проверок верны, запустите реальные проверки:
+Requires [Node.js 20+](https://nodejs.org/).
 
 ```bash
-npx --yes breakcurl@0.1.0
+npx breakcurl
 ```
 
-Снова вставьте cURL, проверьте очищенный адрес и количество запросов, затем подтвердите запуск через `y`.
+Then:
 
-> Команды `npx breakcurl@0.1.0` заработают после публикации пакета в npm. До публикации используйте запуск из исходников ниже.
+1. Open `DevTools → Network` in your browser.
+2. Select a working `POST`, `PUT`, `PATCH`, or `DELETE` request.
+3. Choose `Copy → Copy as cURL (bash)`.
+4. Paste the complete cURL into the terminal and press `Enter` on an empty line.
+5. Review the target and request budget, then confirm with `y`.
 
-### Установить один раз
+`npx` downloads and runs BreakCurl for you. Nothing is installed globally.
 
-Если удобнее иметь постоянную команду `breakcurl`:
+Preview the complete plan without sending a single HTTP request:
 
 ```bash
-npm install --global breakcurl@0.1.0
-breakcurl --dry-run
+npx breakcurl --dry-run
 ```
 
-### Запустить из исходников прямо сейчас
-
-Склонируйте репозиторий и перейдите в папку проекта:
+Try BreakCurl without your own API:
 
 ```bash
-git clone https://github.com/c33leron/BreakCurl.git
-cd BreakCurl
-npm install
-npm run check -- --dry-run
+npx breakcurl demo
 ```
 
-После проверки плана:
+## Language
+
+English is the default. Run the complete CLI, prompts, errors, and Markdown report in Russian with:
 
 ```bash
-npm run check
+npx breakcurl --lang ru
 ```
 
-Для безопасной локальной демонстрации без своего API:
+You can also set the language for every run in the current shell:
 
 ```bash
-npm run demo
+export BREAKCURL_LANG=ru
+npx breakcurl
 ```
 
-По умолчанию используется профиль `negative` — до 60 проверок, распределённых по разным JSON paths. Без подтверждения ни исходный, ни проверочные запросы не отправляются.
+`report.json` always keeps stable English machine-readable fields and messages, regardless of the selected interface language.
 
-## Сначала посмотреть план без запросов
+## What happens
 
-```bash
-npm run check -- --dry-run
-```
+The default `quick` profile sends one baseline request and prepares up to 15 checks. Before sending anything, BreakCurl shows the sanitized target, profile, exact request budget, coverage categories, and output directory.
 
-BreakCurl покажет:
+No requests are sent without explicit confirmation. Checks run sequentially with no retries. The first `HTTP 429` stops the remaining run.
 
-- очищенный целевой адрес;
-- выбранный профиль;
-- количество проверок по категориям;
-- полный список мутаций и ожиданий;
-- предупреждения о потенциальных side effects.
+## Profiles
 
-В режиме `--dry-run` отправляется ровно `0` HTTP-запросов.
-
-## Профили проверок
-
-```bash
-npm run check -- --profile quick
-npm run check -- --profile negative
-npm run check -- --profile security
-npm run check -- --profile full
-```
-
-| Профиль | Лимит по умолчанию | Что проверяет |
+| Profile | Default checks | Coverage |
 | --- | ---: | --- |
-| `quick` | 15 | Удаление, `null`, неправильный тип, пустое значение, числовая граница |
-| `negative` | 60 | Quick + пробелы, длинные строки, Unicode, отрицательные, большие и дробные числа |
-| `security` | 80 | Auth boundary, безопасные injection probes, protocol и базовые structural-проверки |
-| `full` | 120 | Negative + Security в одном запуске |
-
-Жёсткий предел — `200` проверочных запросов:
+| `quick` | 15 | Remove, `null`, wrong type, empty value, and numeric boundary |
+| `negative` | 60 | Quick + whitespace, long strings, Unicode, and extended boundaries |
+| `security` | 80 | Auth boundary, constrained injection probes, and protocol checks |
+| `full` | 120 | Negative + Security |
 
 ```bash
-npm run check -- --profile full --max-cases 150
+npx breakcurl --profile negative
+npx breakcurl --security
+npx breakcurl --security --expect-auth
+npx breakcurl --profile full --max-cases 100
 ```
 
-BreakCurl распределяет проверки по полям breadth-first: сначала затрагиваются разные JSON paths, а не генерируются все варианты только для первого поля.
+`--expect-auth` makes the authentication oracle strict:
 
-## Security-режим
+- `401/403` → `PASS`
+- `2xx` → `FAIL`
+- another `4xx` → `WARN`
 
-Короткая команда:
+Without `--expect-auth`, a successful auth probe remains `WARN`: the endpoint may be intentionally public.
 
-```bash
-npm run check -- --security
-```
+## Safety
 
-Это alias для `--profile security`.
+- Use only an authorized DEV/local environment and disposable data.
+- `--dry-run` always sends `0` requests.
+- Without confirmation or `--allow-mutation`, no requests are sent.
+- Auth probes repeat the valid body without valid credentials and may cause a side effect if the endpoint is vulnerable.
+- Checks run sequentially with no retries.
+- The first `HTTP 429` stops the run.
+- One run is hard-limited to `200` checks.
+- BreakCurl never executes the pasted cURL through a shell.
+- BreakCurl does not perform exploitation, SSRF, brute force, race/load testing, or data extraction.
 
-### Проверка authentication boundary
+Read the complete [security policy](https://github.com/c33leron/BreakCurl/blob/main/SECURITY.md).
 
-Если в cURL есть `Authorization`, cookies, API key или auth query-параметр, BreakCurl добавляет два auth-probe:
+## Results
 
-1. Удаляет все credentials.
-2. Заменяет их на заведомо невалидные значения.
+- `PASS` — a specific expectation was confirmed.
+- `INFO` — an observation without a strict oracle.
+- `WARN` — suspicious behavior or a security signal without complete proof.
+- `FAIL` — a `5xx`, invalid JSON contract, or proven violation of an explicit oracle.
+- `ERROR` — the run or check could not be evaluated correctly.
 
-Если endpoint по требованиям обязан быть защищён:
+`severity` describes potential impact. `confidence` describes the strength of the evidence.
 
-```bash
-npm run check -- --security --expect-auth
-```
+## Reports
 
-Oracle становится строгим:
-
-- `401/403` → `PASS`;
-- успешный `2xx` → `FAIL` с высоким security-риском;
-- другой `4xx` → `WARN`, потому что он не доказывает auth-отказ.
-
-Без `--expect-auth` успешный ответ считается `WARN`, а не доказанной дырой: endpoint может быть публичным.
-
-> Auth-probe повторяет валидное тело запроса без корректных credentials. Если endpoint реально уязвим, операция может выполниться. Используйте disposable test data и непродуктивное окружение.
-
-### Безопасные security probes
-
-Для строковых полей используются ограниченные неисполняемые маркеры:
-
-- SQL syntax marker;
-- NoSQL-объект с `$ne` для проверки type validation;
-- путь к заведомо несуществующему файлу;
-- неисполняемый HTML markup;
-- template expression marker;
-- CRLF/newline marker.
-
-BreakCurl не выполняет эксплуатацию, не извлекает данные и не заявляет уязвимость только потому, что API принял строку. Он повышает результат до `WARN/FAIL`, когда есть доказательство: `5xx`, database error, stack trace, credential leak, небезопасное HTML-отражение или нарушенный auth-контракт.
-
-### Анализ ответа
-
-BreakCurl ищет:
-
-- stack traces и внутренние пути;
-- SQL/ORM/database errors;
-- JWT, cloud keys и private keys;
-- `X-Powered-By`;
-- неэкранированное отражение markup probe в HTML.
-
-Ответ API не записывается на диск. Для сравнения сохраняется только fingerprint статуса, Content-Type и структуры JSON без значений.
-
-## Свои параметры и проверки
-
-### Проверять конкретные поля
-
-```bash
-npm run check -- \
-  --only '$.email' \
-  --only '$.profile' \
-  --exclude '$.profile.internalNote'
-```
-
-`--only` включает указанный path и его дочерние поля. `--exclude` имеет приоритет.
-
-### Передать своё значение
-
-Значение после `=` должно быть валидным JSON:
-
-```bash
-npm run check -- \
-  --set '$.email="qa@"' \
-  --set '$.age=-1' \
-  --set '$.active=null'
-```
-
-По умолчанию пользовательский `--set` ожидает отклонение API.
-
-### Удалить своё поле
-
-```bash
-npm run check -- --remove '$.profile.middleName'
-```
-
-### Использовать конфиг
-
-```bash
-cp breakcurl.config.example.json breakcurl.config.json
-npm run check -- --config breakcurl.config.json
-```
-
-Формат custom case:
-
-```json
-{
-  "name": "Неизвестный enum должен быть отклонён",
-  "path": "$.status",
-  "operation": "set",
-  "value": "BREAKCURL_UNKNOWN",
-  "expect": "reject"
-}
-```
-
-Поддерживаемые ожидания:
-
-- `reject` — ожидается контролируемый `4xx`;
-- `accept` — ожидается `2xx`;
-- `auth-reject` — ожидается строго `401/403`;
-- `observe` — жёсткого oracle нет, результат будет `INFO`, если не найдено падение или security-сигнал.
-
-Полный пример находится в [breakcurl.config.example.json](breakcurl.config.example.json).
-
-## Результаты
-
-- `FAIL` — `5xx`, невалидный JSON-контракт, доказанное нарушение `--expect-auth` или другая сильная находка;
-- `WARN` — подозрительное принятие данных, утечка внутренних деталей, timeout либо security-риск без полного oracle;
-- `INFO` — наблюдение без жёсткого ожидания; это не баг и не успешная проверка требования;
-- `PASS` — конкретное ожидание подтверждено;
-- `ERROR` — проблема ввода, исходного запроса, redirect или самого BreakCurl.
-
-Разделение `severity` и `confidence` не даёт смешивать потенциальный ущерб с силой доказательства.
-
-## Создаваемые файлы
+Each run creates `breakcurl-output/`:
 
 ```text
 breakcurl-output/
 ├── report.md
 ├── report.json
 └── findings/
-    ├── fail-auth-auth-missing.curl
-    └── warn-email-wrong-type.curl
+    └── fail-auth-auth-missing.curl
 ```
 
-- `report.md` — отчёт для человека;
-- `report.json` — очищенный machine-readable результат для CI;
-- `findings/*.curl` — безопасные replay-команды только для `FAIL/WARN`.
+- `report.md` follows the selected interface language.
+- `report.json` remains stable and English for CI consumers.
+- `findings/*.curl` contains sanitized replay commands for `FAIL/WARN`.
 
-`Authorization`, cookies, API keys, auth query, чувствительные JSON-поля, JWT и известные значения credentials заменяются на `<REDACTED>`. Если credential повторён под нейтральным именем вроде `value`, BreakCurl отслеживает исходное секретное значение и также удаляет его из артефактов.
+Credentials, cookies, API keys, auth query parameters, JWTs, and secret-like JSON fields are replaced with `<REDACTED>`. API response bodies are not written to disk. Replay cURLs may still contain non-secret values from the original JSON, so use synthetic data and review artifacts before sharing them.
 
-## Запуск из файла и CI
-
-Из файла:
+## Files and CI
 
 ```bash
-npm run check -- request.curl
+npx breakcurl request.curl
+cat request.curl | npx breakcurl --profile quick --allow-mutation
 ```
 
-Через stdin или в CI:
-
-```bash
-cat request.curl | npm run check -- --profile quick --allow-mutation
-```
-
-Опубликованный npm-пакет можно запустить с файлом напрямую:
-
-```bash
-npx --yes breakcurl@0.1.0 request.curl --profile full
-```
-
-## Все параметры
+Exit codes:
 
 ```text
---profile <name>       quick, negative, security или full
---security             alias для --profile security
---max-cases <number>   максимум проверок, от 1 до 200
---timeout <ms>         тайм-аут одного запроса
---expect-auth          требовать 401/403 для auth-probes
---dry-run              показать план, отправить 0 запросов
---config <file>        JSON-конфиг
---only <json-path>     включить path; параметр можно повторять
---exclude <json-path>  исключить path; параметр можно повторять
---set <path=json>      пользовательская замена; можно повторять
---remove <json-path>   пользовательское удаление; можно повторять
---allow-mutation       запуск без интерактивного подтверждения
---output <directory>   каталог результатов
---no-color             отключить цветной вывод
---help                 показать справку
---version              показать версию
+0  no FAIL or ERROR
+1  at least one FAIL
+2  ERROR, invalid input, or failed baseline
 ```
 
-## Коды завершения
-
-```text
-0  FAIL и ERROR отсутствуют
-1  найден хотя бы один FAIL
-2  ERROR, невалидный ввод, неуспешный исходный запрос или ошибка BreakCurl
-```
-
-Намеренные `FAIL/WARN` внутри `demo` возвращают `0`, если демонстрация работает корректно.
-
-## Границы продукта
-
-Поддерживаются один `POST`, `PUT`, `PATCH` или `DELETE`, один HTTP/HTTPS URL и JSON-объект в корне тела. Copy as cURL разбирается как данные и никогда не исполняется через shell.
-
-Не поддерживаются multipart, file bodies, redirects, shell variables, pipes, substitutions, client certificates, brute force, SSRF, race/load и автоматическая эксплуатация. BreakCurl — security-focused negative testing, но не замена pentest, DAST или QA-команды.
-
-## Разработка
+## Target fields and custom checks
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
+npx breakcurl \
+  --only '$.email' \
+  --exclude '$.profile.internalNote' \
+  --set '$.age=-1' \
+  --remove '$.profile.middleName'
+```
+
+Use a [JSON config](https://github.com/c33leron/BreakCurl/blob/main/breakcurl.config.example.json) for repeatable checks:
+
+```bash
+npx breakcurl --config breakcurl.config.json
+```
+
+Complete CLI reference:
+
+```bash
+npx breakcurl --help
+```
+
+## Boundaries
+
+BreakCurl supports one `POST`, `PUT`, `PATCH`, or `DELETE` request, one HTTP/HTTPS URL, and a root JSON object.
+
+Multipart bodies, file bodies, redirects, shell variables, pipes, substitutions, and client certificates are intentionally unsupported. BreakCurl complements API testing but does not replace a pentest, DAST scanner, or complete QA strategy.
+
+## Development
+
+```bash
+git clone https://github.com/c33leron/BreakCurl.git
+cd BreakCurl
+npm ci
 npm run verify
 ```
-
-Правила безопасного использования: [SECURITY.md](SECURITY.md).

@@ -6,21 +6,21 @@
   "expectAuth": true,
   "customCases": [
     {
-      "name": "Email без домена должен быть отклонён",
+      "name": "Email without a domain must be rejected",
       "path": "$.email",
       "operation": "set",
       "value": "qa@",
       "expect": "reject"
     },
     {
-      "name": "Неизвестный enum должен быть отклонён",
+      "name": "Unknown enum value must be rejected",
       "path": "$.profile.status",
       "operation": "set",
       "value": "BREAKCURL_UNKNOWN",
       "expect": "reject"
     },
     {
-      "name": "Необязательное поле можно удалить",
+      "name": "Optional field may be removed",
       "path": "$.profile.middleName",
       "operation": "remove",
       "expect": "accept"

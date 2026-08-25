@@ -1,5 +1,6 @@
 import { parse as tokenize } from "shell-quote";
-import type { HttpMethod, JsonObject, ParsedCurl } from "./types.js";
+import { message } from "./i18n.js";
+import type { HttpMethod, JsonObject, Language, ParsedCurl } from "./types.js";
 
 const METHODS = new Set<HttpMethod>(["POST", "PUT", "PATCH", "DELETE"]);
 const DATA_OPTIONS = new Set([
@@ -30,12 +31,19 @@ const IGNORED_COPY_OPTIONS = new Set([
  * executes the input and intentionally rejects shell syntax instead of trying to
  * emulate a shell.
  */
-export function parseCurl(input: string): ParsedCurl {
+export function parseCurl(
+  input: string,
+  language: Language = "en",
+): ParsedCurl {
   if (typeof input !== "string" || input.trim() === "") {
-    throw new Error("cURL не может быть пустым.");
+    throw localizedError(
+      language,
+      "cURL cannot be empty.",
+      "cURL не может быть пустым.",
+    );
   }
 
-  rejectCommandSubstitution(input);
+  rejectCommandSubstitution(input, language);
 
   let tokens: ReturnType<typeof tokenize>;
   try {
@@ -43,19 +51,35 @@ export function parseCurl(input: string): ParsedCurl {
       shellVariable: name,
     }));
   } catch {
-    throw new Error("В cURL некорректно расставлены кавычки.");
+    throw localizedError(
+      language,
+      "cURL contains mismatched quotes.",
+      "В cURL некорректно расставлены кавычки.",
+    );
   }
 
   const args = tokens.map((token) => {
     if (typeof token === "string") return token;
     if ("op" in token && token.op === "glob") return token.pattern;
     if ("shellVariable" in token) {
-      throw new Error("Shell-переменные не поддерживаются.");
+      throw localizedError(
+        language,
+        "Shell variables are not supported.",
+        "Shell-переменные не поддерживаются.",
+      );
     }
-    throw new Error("Shell-операторы и перенаправления не поддерживаются.");
+    throw localizedError(
+      language,
+      "Shell operators and redirects are not supported.",
+      "Shell-операторы и перенаправления не поддерживаются.",
+    );
   });
   if (args.shift() !== "curl") {
-    throw new Error("Ввод должен начинаться с curl.");
+    throw localizedError(
+      language,
+      "Input must start with curl.",
+      "Ввод должен начинаться с curl.",
+    );
   }
 
   let method: HttpMethod | undefined;
@@ -79,11 +103,19 @@ export function parseCurl(input: string): ParsedCurl {
 
     if (REQUEST_OPTIONS.has(argument)) {
       const value = readOptionValue(
-        "После -X/--request требуется HTTP-метод.",
+        message(
+          language,
+          "-X/--request requires an HTTP method.",
+          "После -X/--request требуется HTTP-метод.",
+        ),
       ).toUpperCase();
       if (!value || !METHODS.has(value as HttpMethod)) {
         throw new Error(
-          "Поддерживаются только методы POST, PUT, PATCH и DELETE.",
+          message(
+            language,
+            "Only POST, PUT, PATCH, and DELETE methods are supported.",
+            "Поддерживаются только методы POST, PUT, PATCH и DELETE.",
+          ),
         );
       }
       method = value as HttpMethod;
@@ -92,17 +124,35 @@ export function parseCurl(input: string): ParsedCurl {
 
     if (HEADER_OPTIONS.has(argument)) {
       const value = readOptionValue(
-        "После -H/--header требуется HTTP-заголовок.",
+        message(
+          language,
+          "-H/--header requires an HTTP header.",
+          "После -H/--header требуется HTTP-заголовок.",
+        ),
       );
       const separator = value.indexOf(":");
-      if (separator < 1) throw new Error("Некорректный HTTP-заголовок в cURL.");
+      if (separator < 1) {
+        throw localizedError(
+          language,
+          "Invalid HTTP header in cURL.",
+          "Некорректный HTTP-заголовок в cURL.",
+        );
+      }
       const name = value.slice(0, separator).trim();
       const headerValue = value.slice(separator + 1).trim();
       if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
-        throw new Error(`Некорректное имя HTTP-заголовка: ${name}`);
+        throw localizedError(
+          language,
+          `Invalid HTTP header name: ${name}`,
+          `Некорректное имя HTTP-заголовка: ${name}`,
+        );
       }
       if (/[\0\r\n]/.test(headerValue)) {
-        throw new Error(`HTTP-заголовок ${name} содержит управляющие символы.`);
+        throw localizedError(
+          language,
+          `HTTP header ${name} contains control characters.`,
+          `HTTP-заголовок ${name} содержит управляющие символы.`,
+        );
       }
       headers[name] = headerValue;
       continue;
@@ -110,13 +160,25 @@ export function parseCurl(input: string): ParsedCurl {
 
     if (COOKIE_OPTIONS.has(argument)) {
       const value = readOptionValue(
-        "После -b/--cookie требуется строка cookie.",
+        message(
+          language,
+          "-b/--cookie requires a cookie string.",
+          "После -b/--cookie требуется строка cookie.",
+        ),
       );
       if (value.startsWith("@")) {
-        throw new Error("Cookie-файлы не поддерживаются.");
+        throw localizedError(
+          language,
+          "Cookie files are not supported.",
+          "Cookie-файлы не поддерживаются.",
+        );
       }
       if (/[\0\r\n]/.test(value)) {
-        throw new Error("Cookie содержит управляющие символы.");
+        throw localizedError(
+          language,
+          "Cookie contains control characters.",
+          "Cookie содержит управляющие символы.",
+        );
       }
       headers.Cookie = headers.Cookie ? `${headers.Cookie}; ${value}` : value;
       continue;
@@ -124,10 +186,24 @@ export function parseCurl(input: string): ParsedCurl {
 
     if (DATA_OPTIONS.has(argument)) {
       if (bodyText !== undefined)
-        throw new Error("Поддерживается только одно JSON-тело.");
-      const value = readOptionValue("После опции data требуется JSON-тело.");
+        throw localizedError(
+          language,
+          "Only one JSON body is supported.",
+          "Поддерживается только одно JSON-тело.",
+        );
+      const value = readOptionValue(
+        message(
+          language,
+          "The data option requires a JSON body.",
+          "После опции data требуется JSON-тело.",
+        ),
+      );
       if (value.startsWith("@"))
-        throw new Error("Тела запросов из файлов не поддерживаются.");
+        throw localizedError(
+          language,
+          "Request bodies from files are not supported.",
+          "Тела запросов из файлов не поддерживаются.",
+        );
       bodyText = value;
       if (argument === "--json") {
         setHeaderIfMissing(headers, "Content-Type", "application/json");
@@ -137,48 +213,89 @@ export function parseCurl(input: string): ParsedCurl {
     }
 
     if (URL_OPTIONS.has(argument)) {
-      if (url) throw new Error("Поддерживается только один URL.");
+      if (url)
+        throw localizedError(
+          language,
+          "Only one URL is supported.",
+          "Поддерживается только один URL.",
+        );
       url = parseHttpUrl(
-        readOptionValue("После --url требуется HTTP- или HTTPS-адрес."),
+        readOptionValue(
+          message(
+            language,
+            "--url requires an HTTP or HTTPS address.",
+            "После --url требуется HTTP- или HTTPS-адрес.",
+          ),
+        ),
+        language,
       );
       continue;
     }
 
     if (IGNORED_COPY_OPTIONS.has(argument)) {
       if (inlineValue !== undefined) {
-        throw new Error(`Некорректная опция cURL: ${rawArgument}`);
+        throw localizedError(
+          language,
+          `Invalid cURL option: ${rawArgument}`,
+          `Некорректная опция cURL: ${rawArgument}`,
+        );
       }
       continue;
     }
 
     if (argument.startsWith("-")) {
-      throw new Error(`Неподдерживаемая опция cURL: ${argument}`);
+      throw localizedError(
+        language,
+        `Unsupported cURL option: ${argument}`,
+        `Неподдерживаемая опция cURL: ${argument}`,
+      );
     }
 
     if (inlineValue !== undefined) {
-      throw new Error(`Некорректный аргумент cURL: ${rawArgument}`);
+      throw localizedError(
+        language,
+        `Invalid cURL argument: ${rawArgument}`,
+        `Некорректный аргумент cURL: ${rawArgument}`,
+      );
     }
-    if (url) throw new Error("Поддерживается только один URL.");
-    url = parseHttpUrl(argument);
+    if (url)
+      throw localizedError(
+        language,
+        "Only one URL is supported.",
+        "Поддерживается только один URL.",
+      );
+    url = parseHttpUrl(argument, language);
   }
 
   if (!url || bodyText === undefined) {
-    throw new Error("cURL должен содержать один URL и одно JSON-тело.");
+    throw localizedError(
+      language,
+      "cURL must contain one URL and one JSON body.",
+      "cURL должен содержать один URL и одно JSON-тело.",
+    );
   }
 
   let parsedBody: unknown;
   try {
     parsedBody = JSON.parse(bodyText);
   } catch {
-    throw new Error("Тело запроса должно содержать валидный JSON.");
+    throw localizedError(
+      language,
+      "Request body must contain valid JSON.",
+      "Тело запроса должно содержать валидный JSON.",
+    );
   }
   if (!isJsonObject(parsedBody))
-    throw new Error("В корне JSON-тела должен находиться объект.");
+    throw localizedError(
+      language,
+      "The root JSON value must be an object.",
+      "В корне JSON-тела должен находиться объект.",
+    );
 
   return { method: method ?? "POST", url, headers, body: parsedBody };
 }
 
-function rejectCommandSubstitution(input: string): void {
+function rejectCommandSubstitution(input: string, language: Language): void {
   let quote: "single" | "double" | undefined;
   let escaped = false;
 
@@ -201,28 +318,52 @@ function rejectCommandSubstitution(input: string): void {
       continue;
     }
     if (quote !== "single" && character === "`") {
-      throw new Error("Подстановка команд не поддерживается.");
+      throw localizedError(
+        language,
+        "Command substitution is not supported.",
+        "Подстановка команд не поддерживается.",
+      );
     }
     if (quote !== "single" && character === "$" && input[index + 1] === "(") {
-      throw new Error("Подстановка команд не поддерживается.");
+      throw localizedError(
+        language,
+        "Command substitution is not supported.",
+        "Подстановка команд не поддерживается.",
+      );
     }
   }
 
   if (quote || escaped)
-    throw new Error("В cURL некорректно расставлены кавычки.");
+    throw localizedError(
+      language,
+      "cURL contains mismatched quotes.",
+      "В cURL некорректно расставлены кавычки.",
+    );
 }
 
-function parseHttpUrl(value: string): string {
+function parseHttpUrl(value: string, language: Language): string {
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error("cURL должен содержать валидный HTTP-адрес.");
+    throw localizedError(
+      language,
+      "cURL must contain a valid HTTP address.",
+      "cURL должен содержать валидный HTTP-адрес.",
+    );
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Поддерживаются только URL с HTTP или HTTPS.");
+    throw localizedError(
+      language,
+      "Only HTTP and HTTPS URLs are supported.",
+      "Поддерживаются только URL с HTTP или HTTPS.",
+    );
   }
   return value;
+}
+
+function localizedError(language: Language, en: string, ru: string): Error {
+  return new Error(message(language, en, ru));
 }
 
 function setHeaderIfMissing(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { englishText } from "../src/i18n.js";
 import {
   generateChecks,
   parseInlineCustomCase,
@@ -39,7 +40,9 @@ describe("profile-driven checks", () => {
     expect(generated.cases.some((item) => item.kind === "long-string")).toBe(
       true,
     );
-    expect(generated.notes.join(" ")).toContain("Лимит остановил генерацию");
+    expect(generated.notes.map(englishText).join(" ")).toContain(
+      "The limit stopped generation",
+    );
   });
 
   it("adds bounded auth and injection probes for the security profile", () => {
@@ -79,14 +82,14 @@ describe("profile-driven checks", () => {
       excludePaths: ["$.profile.score"],
       customCases: [
         {
-          name: "Невалидный email",
+          name: "Invalid email",
           path: "$.email",
           operation: "set",
           value: "qa@",
           expect: "reject",
         },
         {
-          name: "Удалить active",
+          name: "Remove active",
           path: "$.active",
           operation: "remove",
           expect: "accept",
@@ -114,7 +117,7 @@ describe("profile-driven checks", () => {
       value: "broken",
     });
     expect(() => parseInlineCustomCase("$.age=not-json", 0)).toThrow(
-      "валидным JSON",
+      "valid JSON",
     );
     expect(() =>
       generateChecks(request, {
@@ -129,7 +132,7 @@ describe("profile-driven checks", () => {
           },
         ],
       }),
-    ).toThrow("Небезопасный сегмент");
+    ).toThrow("Unsafe JSON path segment");
   });
 
   it("applies header and URL mutations only to the selected case request", () => {
@@ -149,6 +152,6 @@ describe("profile-driven checks", () => {
   it("rejects limits above the hard safety boundary", () => {
     expect(() =>
       generateChecks(request, { profile: "full", maxCases: 201 }),
-    ).toThrow("от 1 до 200");
+    ).toThrow("from 1 to 200");
   });
 });

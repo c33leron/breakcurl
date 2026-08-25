@@ -1,3 +1,4 @@
+import { englishText, localized, message } from "./i18n.js";
 import type {
   CheckCategory,
   CheckExpectation,
@@ -7,9 +8,11 @@ import type {
   GeneratedChecks,
   JsonObject,
   JsonValue,
+  Language,
   MutationCase,
   MutationKind,
   ParsedCurl,
+  TranslatableText,
 } from "./types.js";
 
 type PathSegment = string | number;
@@ -51,11 +54,12 @@ export function generateChecks(
   request: ParsedCurl,
   options: CheckGenerationOptions,
 ): GeneratedChecks {
-  validateMaxCases(options.maxCases);
+  const language = options.language ?? "en";
+  validateMaxCases(options.maxCases, language);
 
-  const notes: string[] = [];
+  const notes: GeneratedChecks["notes"] = [];
   const customCases = (options.customCases ?? []).map((definition, index) =>
-    createCustomCase(request, definition, index),
+    createCustomCase(request, definition, index, language),
   );
   const fixedCases: MutationCase[] = [...customCases];
 
@@ -63,7 +67,10 @@ export function generateChecks(
     const authCases = createAuthCases(request, options.expectAuth ?? false);
     if (authCases.length === 0) {
       notes.push(
-        "Auth-проверки пропущены: в исходном cURL не найдено credentials.",
+        localized(
+          "Auth checks were skipped: no credentials were found in the source cURL.",
+          "Auth-проверки пропущены: в исходном cURL не найдено credentials.",
+        ),
       );
     } else {
       fixedCases.push(...authCases);
@@ -72,7 +79,11 @@ export function generateChecks(
 
   if (fixedCases.length > options.maxCases) {
     throw new Error(
-      `Явные и приоритетные проверки требуют ${fixedCases.length} кейсов, но --max-cases=${options.maxCases}. Увеличьте лимит.`,
+      message(
+        language,
+        `Explicit and priority checks require ${fixedCases.length} cases, but --max-cases=${options.maxCases}. Increase the limit.`,
+        `Явные и приоритетные проверки требуют ${fixedCases.length} кейсов, но --max-cases=${options.maxCases}. Увеличьте лимит.`,
+      ),
     );
   }
 
@@ -97,7 +108,10 @@ export function generateChecks(
 
   if (automaticCases.length + fixedCases.length > cases.length) {
     notes.push(
-      `Лимит остановил генерацию: выбрано ${cases.length} из ${automaticCases.length + fixedCases.length} доступных проверок.`,
+      localized(
+        `The limit stopped generation: selected ${cases.length} of ${automaticCases.length + fixedCases.length} available checks.`,
+        `Лимит остановил генерацию: выбрано ${cases.length} из ${automaticCases.length + fixedCases.length} доступных проверок.`,
+      ),
     );
   }
   if (
@@ -105,7 +119,12 @@ export function generateChecks(
     customCases.length === 0 &&
     fixedCases.length === 0
   ) {
-    notes.push("По выбранным JSON paths проверки не сгенерированы.");
+    notes.push(
+      localized(
+        "No checks were generated for the selected JSON paths.",
+        "По выбранным JSON paths проверки не сгенерированы.",
+      ),
+    );
   }
 
   return { cases, notes };
@@ -137,11 +156,16 @@ export function requestForCase(
 export function parseInlineCustomCase(
   input: string,
   index: number,
+  language: Language = "en",
 ): CustomCaseDefinition {
   const separator = input.indexOf("=");
   if (separator < 2) {
     throw new Error(
-      `Некорректный --set #${index + 1}. Используйте формат '$.path=<JSON>'.`,
+      message(
+        language,
+        `Invalid --set #${index + 1}. Use the format '$.path=<JSON>'.`,
+        `Некорректный --set #${index + 1}. Используйте формат '$.path=<JSON>'.`,
+      ),
     );
   }
   const path = input.slice(0, separator).trim();
@@ -151,14 +175,27 @@ export function parseInlineCustomCase(
     value = JSON.parse(rawValue) as JsonValue;
   } catch {
     throw new Error(
-      `Значение --set для ${path} должно быть валидным JSON. Строку передавайте в двойных кавычках.`,
+      message(
+        language,
+        `The --set value for ${path} must be valid JSON. Wrap strings in double quotes.`,
+        `Значение --set для ${path} должно быть валидным JSON. Строку передавайте в двойных кавычках.`,
+      ),
     );
   }
   if (!isJsonValue(value)) {
-    throw new Error(`Значение --set для ${path} не является JSON.`);
+    throw new Error(
+      message(
+        language,
+        `The --set value for ${path} is not a JSON value.`,
+        `Значение --set для ${path} не является JSON.`,
+      ),
+    );
   }
   return {
-    name: `Пользовательское значение для ${path}`,
+    name: localized(
+      `Custom value for ${path}`,
+      `Пользовательское значение для ${path}`,
+    ),
     path,
     operation: "set",
     value,
@@ -166,9 +203,15 @@ export function parseInlineCustomCase(
   };
 }
 
-function validateMaxCases(maxCases: number): void {
+function validateMaxCases(maxCases: number, language: Language): void {
   if (!Number.isInteger(maxCases) || maxCases <= 0 || maxCases > MAX_CASES) {
-    throw new Error(`maxCases должен быть целым числом от 1 до ${MAX_CASES}.`);
+    throw new Error(
+      message(
+        language,
+        `maxCases must be an integer from 1 to ${MAX_CASES}.`,
+        `maxCases должен быть целым числом от 1 до ${MAX_CASES}.`,
+      ),
+    );
   }
 }
 
@@ -381,26 +424,37 @@ function createCustomCase(
   request: ParsedCurl,
   definition: CustomCaseDefinition,
   index: number,
+  language: Language,
 ): MutationCase {
-  if (!definition.name.trim()) {
-    throw new Error(`customCases[${index}].name не может быть пустым.`);
+  if (!englishText(definition.name).trim()) {
+    throw new Error(
+      message(
+        language,
+        `customCases[${index}].name cannot be empty.`,
+        `customCases[${index}].name не может быть пустым.`,
+      ),
+    );
   }
-  const segments = parseJsonPath(definition.path);
+  const segments = parseJsonPath(definition.path, language);
   const body = structuredClone(request.body);
   if (definition.operation === "remove") {
-    ensurePathExists(body, segments, definition.path);
-    removeAtPath(body, segments);
+    ensurePathExists(body, segments, definition.path, language);
+    removeAtPath(body, segments, language);
   } else {
     if (definition.value === undefined) {
       throw new Error(
-        `customCases[${index}] с operation=set должен содержать value.`,
+        message(
+          language,
+          `customCases[${index}] with operation=set must contain value.`,
+          `customCases[${index}] с operation=set должен содержать value.`,
+        ),
       );
     }
-    setAtPath(body, segments, definition.value);
+    setAtPath(body, segments, definition.value, language);
   }
 
   return {
-    id: `custom-${index + 1}:${slug(definition.name)}`,
+    id: `custom-${index + 1}:${slug(englishText(definition.name))}`,
     path: definition.path,
     description: definition.name,
     kind: definition.operation === "remove" ? "custom-remove" : "custom-set",
@@ -423,7 +477,10 @@ function createUnknownFieldCase(request: ParsedCurl): MutationCase {
   return {
     id: "unknown-field:$",
     path: `$.${key}`,
-    description: `добавлено неизвестное поле $.${key}`,
+    description: localized(
+      `unknown field $.${key} added`,
+      `добавлено неизвестное поле $.${key}`,
+    ),
     kind: "unknown-field",
     body,
     category: "structure",
@@ -441,7 +498,10 @@ function createContentTypeCase(request: ParsedCurl): MutationCase {
   return {
     id: "content-type-missing:headers",
     path: "$headers.content-type",
-    description: "заголовок Content-Type удалён",
+    description: localized(
+      "Content-Type header removed",
+      "заголовок Content-Type удалён",
+    ),
     kind: "content-type-missing",
     body: structuredClone(request.body),
     headers,
@@ -477,7 +537,10 @@ function createAuthCases(
     {
       id: "auth-missing:credentials",
       path: "$auth",
-      description: "все credentials удалены",
+      description: localized(
+        "all credentials removed",
+        "все credentials удалены",
+      ),
       kind: "auth-missing",
       body: structuredClone(request.body),
       headers: missingHeaders,
@@ -489,7 +552,10 @@ function createAuthCases(
     {
       id: "auth-invalid:credentials",
       path: "$auth",
-      description: "credentials заменены на невалидные",
+      description: localized(
+        "credentials replaced with invalid values",
+        "credentials заменены на невалидные",
+      ),
       kind: "auth-invalid",
       body: structuredClone(request.body),
       headers: invalidHeaders,
@@ -550,17 +616,23 @@ function pathIsSelected(
   return onlyPaths.length === 0 || onlyPaths.some(matches);
 }
 
-function parseJsonPath(path: string): PathSegment[] {
+function parseJsonPath(path: string, language: Language): PathSegment[] {
   if (!path.startsWith("$")) {
-    throw new Error(`JSON path должен начинаться с $: ${path}`);
+    throw new Error(
+      message(
+        language,
+        `JSON path must start with $: ${path}`,
+        `JSON path должен начинаться с $: ${path}`,
+      ),
+    );
   }
   const segments: PathSegment[] = [];
   let index = 1;
   while (index < path.length) {
     if (path[index] === ".") {
       const match = path.slice(index + 1).match(/^[A-Za-z_$][A-Za-z0-9_$]*/);
-      if (!match) throw new Error(`Некорректный JSON path: ${path}`);
-      assertSafeSegment(match[0]);
+      if (!match) throw invalidJsonPath(path, language);
+      assertSafeSegment(match[0], language);
       segments.push(match[0]);
       index += match[0].length + 1;
       continue;
@@ -576,27 +648,39 @@ function parseJsonPath(path: string): PathSegment[] {
       const quoted = rest.match(
         /^\[((?:"(?:\\.|[^"\\])*")|(?:'(?:\\.|[^'\\])*'))\]/,
       );
-      if (!quoted?.[1]) throw new Error(`Некорректный JSON path: ${path}`);
+      if (!quoted?.[1]) throw invalidJsonPath(path, language);
       const raw = quoted[1];
       const key = raw.startsWith("'")
         ? raw.slice(1, -1).replaceAll("\\'", "'")
         : (JSON.parse(raw) as string);
-      assertSafeSegment(key);
+      assertSafeSegment(key, language);
       segments.push(key);
       index += quoted[0].length;
       continue;
     }
-    throw new Error(`Некорректный JSON path: ${path}`);
+    throw invalidJsonPath(path, language);
   }
   if (segments.length === 0) {
-    throw new Error("Корневой JSON-объект нельзя заменить целиком.");
+    throw new Error(
+      message(
+        language,
+        "The root JSON object cannot be replaced as a whole.",
+        "Корневой JSON-объект нельзя заменить целиком.",
+      ),
+    );
   }
   return segments;
 }
 
-function assertSafeSegment(segment: string): void {
+function assertSafeSegment(segment: string, language: Language): void {
   if (["__proto__", "prototype", "constructor"].includes(segment)) {
-    throw new Error(`Небезопасный сегмент JSON path: ${segment}`);
+    throw new Error(
+      message(
+        language,
+        `Unsafe JSON path segment: ${segment}`,
+        `Небезопасный сегмент JSON path: ${segment}`,
+      ),
+    );
   }
 }
 
@@ -604,28 +688,47 @@ function ensurePathExists(
   body: JsonObject,
   segments: PathSegment[],
   path: string,
+  language: Language,
 ): void {
-  const parent = getParent(body, segments);
+  const parent = getParent(body, segments, language);
   const key = segments.at(-1);
   const exists = Array.isArray(parent)
     ? typeof key === "number" && key >= 0 && key < parent.length
     : typeof key === "string" && Object.hasOwn(parent, key);
-  if (!exists) throw new Error(`JSON path не найден: ${path}`);
+  if (!exists) {
+    throw new Error(
+      message(
+        language,
+        `JSON path not found: ${path}`,
+        `JSON path не найден: ${path}`,
+      ),
+    );
+  }
 }
 
-function removeAtPath(body: JsonObject, segments: PathSegment[]): void {
-  const parent = getParent(body, segments);
+function removeAtPath(
+  body: JsonObject,
+  segments: PathSegment[],
+  language: Language = "en",
+): void {
+  const parent = getParent(body, segments, language);
   const key = segments.at(-1);
   if (key === undefined)
-    throw new Error("Нельзя удалить корневой JSON-объект.");
+    throw new Error(
+      message(
+        language,
+        "The root JSON object cannot be removed.",
+        "Нельзя удалить корневой JSON-объект.",
+      ),
+    );
 
   if (Array.isArray(parent)) {
     if (typeof key !== "number" || key < 0 || key >= parent.length) {
-      throw new Error("Индекс массива в JSON path находится вне границ.");
+      throw arrayIndexError(language);
     }
     parent.splice(key, 1);
   } else {
-    if (typeof key !== "string") throw new Error("Некорректный JSON path.");
+    if (typeof key !== "string") throw invalidJsonPath("", language);
     delete parent[key];
   }
 }
@@ -634,18 +737,25 @@ function setAtPath(
   body: JsonObject,
   segments: PathSegment[],
   value: JsonValue,
+  language: Language = "en",
 ): void {
-  const parent = getParent(body, segments);
+  const parent = getParent(body, segments, language);
   const key = segments.at(-1);
   if (key === undefined)
-    throw new Error("Нельзя заменить корневой JSON-объект.");
+    throw new Error(
+      message(
+        language,
+        "The root JSON object cannot be replaced.",
+        "Нельзя заменить корневой JSON-объект.",
+      ),
+    );
   if (Array.isArray(parent)) {
     if (typeof key !== "number" || key < 0 || key >= parent.length) {
-      throw new Error("Индекс массива в JSON path находится вне границ.");
+      throw arrayIndexError(language);
     }
     parent[key] = value;
   } else {
-    if (typeof key !== "string") throw new Error("Некорректный JSON path.");
+    if (typeof key !== "string") throw invalidJsonPath("", language);
     parent[key] = value;
   }
 }
@@ -653,16 +763,29 @@ function setAtPath(
 function getParent(
   body: JsonObject,
   segments: PathSegment[],
+  language: Language,
 ): JsonObject | JsonValue[] {
   if (segments.length === 0)
-    throw new Error("Нельзя изменить корневой JSON-объект.");
+    throw new Error(
+      message(
+        language,
+        "The root JSON object cannot be modified.",
+        "Нельзя изменить корневой JSON-объект.",
+      ),
+    );
   let current: JsonObject | JsonValue[] = body;
   for (const segment of segments.slice(0, -1)) {
     const next: JsonValue | undefined = Array.isArray(current)
       ? current[segment as number]
       : current[segment as string];
     if (next === undefined || (!isJsonObject(next) && !Array.isArray(next))) {
-      throw new Error("JSON path больше не указывает на контейнер.");
+      throw new Error(
+        message(
+          language,
+          "JSON path no longer points to a container.",
+          "JSON path больше не указывает на контейнер.",
+        ),
+      );
     }
     current = next;
   }
@@ -685,23 +808,90 @@ function getEmptyValue(value: JsonValue): JsonValue | undefined {
   return undefined;
 }
 
-function describe(path: string, kind: MutationKind, value: JsonValue): string {
-  const labels: Partial<Record<MutationKind, string>> = {
-    remove: `поле ${path} удалено`,
-    whitespace: `${path} = строка из пробелов`,
-    "long-string": `${path} = строка длиной 1024 символа`,
-    unicode: `${path} = Unicode и невидимый символ`,
-    "negative-number": `${path} = отрицательное число`,
-    "large-number": `${path} = Number.MAX_SAFE_INTEGER`,
-    "fractional-number": `${path} = дробное число`,
-    "sql-probe": `${path} = безопасный SQL syntax probe`,
-    "nosql-probe": `${path} = объект с оператором $ne`,
-    "path-probe": `${path} = безопасный path traversal probe`,
-    "markup-probe": `${path} = неисполняемый markup probe`,
-    "template-probe": `${path} = template expression probe`,
-    "newline-probe": `${path} = CRLF/newline probe`,
+function describe(
+  path: string,
+  kind: MutationKind,
+  value: JsonValue,
+): TranslatableText {
+  const labels: Partial<Record<MutationKind, TranslatableText>> = {
+    remove: localized(`field ${path} removed`, `поле ${path} удалено`),
+    whitespace: localized(
+      `${path} = whitespace-only string`,
+      `${path} = строка из пробелов`,
+    ),
+    "long-string": localized(
+      `${path} = 1024-character string`,
+      `${path} = строка длиной 1024 символа`,
+    ),
+    unicode: localized(
+      `${path} = Unicode and invisible character`,
+      `${path} = Unicode и невидимый символ`,
+    ),
+    "negative-number": localized(
+      `${path} = negative number`,
+      `${path} = отрицательное число`,
+    ),
+    "large-number": localized(
+      `${path} = Number.MAX_SAFE_INTEGER`,
+      `${path} = Number.MAX_SAFE_INTEGER`,
+    ),
+    "fractional-number": localized(
+      `${path} = fractional number`,
+      `${path} = дробное число`,
+    ),
+    "sql-probe": localized(
+      `${path} = safe SQL syntax probe`,
+      `${path} = безопасный SQL syntax probe`,
+    ),
+    "nosql-probe": localized(
+      `${path} = object with $ne operator`,
+      `${path} = объект с оператором $ne`,
+    ),
+    "path-probe": localized(
+      `${path} = safe path traversal probe`,
+      `${path} = безопасный path traversal probe`,
+    ),
+    "markup-probe": localized(
+      `${path} = non-executable markup probe`,
+      `${path} = неисполняемый markup probe`,
+    ),
+    "template-probe": localized(
+      `${path} = template expression probe`,
+      `${path} = template expression probe`,
+    ),
+    "newline-probe": localized(
+      `${path} = CRLF/newline probe`,
+      `${path} = CRLF/newline probe`,
+    ),
   };
-  return labels[kind] ?? `${path} = ${compactValue(value)}`;
+  return (
+    labels[kind] ??
+    localized(
+      `${path} = ${compactValue(value)}`,
+      `${path} = ${compactValue(value)}`,
+    )
+  );
+}
+
+function invalidJsonPath(path: string, language: Language): Error {
+  const suffix = path ? `: ${path}` : ".";
+  return new Error(
+    message(
+      language,
+      `Invalid JSON path${suffix}`,
+      `Некорректный JSON path${suffix}`,
+    ),
+  );
+}
+
+function arrayIndexError(language: Language): Error {
+  return new Error(
+    message(
+      language,
+      "Array index in JSON path is out of bounds.",
+      "Индекс массива в JSON path находится вне границ.",
+    ),
+  );
 }
 
 function compactValue(value: JsonValue): string {

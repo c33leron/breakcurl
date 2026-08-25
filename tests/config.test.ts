@@ -62,7 +62,8 @@ describe("BreakCurl config", () => {
       "utf8",
     );
 
-    await expect(loadConfig(unknown)).rejects.toThrow("Неизвестные поля");
-    await expect(loadConfig(malformed)).rejects.toThrow("требует value");
+    await expect(loadConfig(unknown)).rejects.toThrow("Unknown config fields");
+    await expect(loadConfig(malformed)).rejects.toThrow("requires value");
+    await expect(loadConfig(unknown, "ru")).rejects.toThrow("Неизвестные поля");
   });
 });

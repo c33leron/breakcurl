@@ -3,6 +3,7 @@ import {
   classifyResponse,
   responseSchemaFingerprint,
 } from "../src/classify.js";
+import { englishText } from "../src/i18n.js";
 import type { HttpResult, MutationCase } from "../src/types.js";
 
 const mutation: MutationCase = {
@@ -59,6 +60,13 @@ describe("classifyResponse", () => {
     expect(classifyResponse(mutation, response({ status: 302 }))).toMatchObject(
       { classification: "ERROR" },
     );
+  });
+
+  it("classifies rate limiting as ERROR instead of a false validation PASS", () => {
+    const result = classifyResponse(mutation, response({ status: 429 }));
+
+    expect(result.classification).toBe("ERROR");
+    expect(englishText(result.reason)).toContain("rate limit");
   });
 
   it("warns when a removed field is accepted or internal paths are exposed", () => {

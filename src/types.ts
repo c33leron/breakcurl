@@ -2,6 +2,13 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
+export type Language = "en" | "ru";
+export interface LocalizedText {
+  en: string;
+  ru: string;
+}
+export type TranslatableText = string | LocalizedText;
+
 export type HttpMethod = "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface ParsedCurl {
@@ -51,7 +58,7 @@ export type MutationKind =
 export interface MutationCase {
   id: string;
   path: string;
-  description: string;
+  description: TranslatableText;
   kind: MutationKind;
   body: JsonObject;
   category?: CheckCategory;
@@ -77,7 +84,7 @@ export type FindingConfidence = "LOW" | "MEDIUM" | "HIGH";
 
 export interface SecuritySignal {
   id: string;
-  title: string;
+  title: TranslatableText;
   severity: FindingSeverity;
   cwe?: string;
 }
@@ -86,7 +93,7 @@ export interface CaseResult {
   mutation: MutationCase;
   response: HttpResult;
   classification: Classification;
-  reason: string;
+  reason: TranslatableText;
   replayFile?: string;
   severity?: FindingSeverity;
   confidence?: FindingConfidence;
@@ -102,7 +109,8 @@ export interface RunResult {
   baseline: BaselineResult;
   cases: CaseResult[];
   profile?: CheckProfile;
-  notes?: string[];
+  notes?: TranslatableText[];
+  language?: Language;
 }
 
 export interface RunOptions {
@@ -111,7 +119,7 @@ export interface RunOptions {
 }
 
 export interface CustomCaseDefinition {
-  name: string;
+  name: TranslatableText;
   path: string;
   operation: "set" | "remove";
   value?: JsonValue;
@@ -125,9 +133,10 @@ export interface CheckGenerationOptions {
   excludePaths?: string[];
   customCases?: CustomCaseDefinition[];
   expectAuth?: boolean;
+  language?: Language;
 }
 
 export interface GeneratedChecks {
   cases: MutationCase[];
-  notes: string[];
+  notes: TranslatableText[];
 }

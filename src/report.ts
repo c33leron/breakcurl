@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { quote } from "shell-quote";
 import { responseSchemaFingerprint } from "./classify.js";
+import { englishText, message, renderText } from "./i18n.js";
 import { requestForCase } from "./mutations.js";
 import {
   collectSensitiveValues,
@@ -12,6 +13,7 @@ import { isUnsafeTransportHeader } from "./runner.js";
 import type {
   CaseResult,
   Classification,
+  Language,
   ParsedCurl,
   RunResult,
 } from "./types.js";
@@ -86,31 +88,46 @@ function formatReport(
       caseResult.classification === "WARN",
   );
   const summary = countByClassification(result.cases);
+  const language = result.language ?? "en";
 
   const allCases =
     result.cases.length === 0
-      ? "_Проверки не выполнялись._"
+      ? message(
+          language,
+          "_No checks were executed._",
+          "_Проверки не выполнялись._",
+        )
       : [
-          "| Результат | Риск | Категория | Проверка | Ожидание | HTTP | Причина | Fingerprint | Повтор |",
+          message(
+            language,
+            "| Result | Risk | Category | Check | Expectation | HTTP | Reason | Fingerprint | Replay |",
+            "| Результат | Риск | Категория | Проверка | Ожидание | HTTP | Причина | Fingerprint | Повтор |",
+          ),
           "| --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
           ...result.cases.map((caseResult) =>
             formatCaseRow(
               caseResult,
               replayByCase.get(caseResult),
               knownSecrets,
+              language,
             ),
           ),
         ].join("\n");
 
   const findingsSection =
     findings.length === 0
-      ? "_Находки FAIL и WARN отсутствуют._"
+      ? message(
+          language,
+          "_No FAIL or WARN findings._",
+          "_Находки FAIL и WARN отсутствуют._",
+        )
       : findings
           .map((caseResult) =>
             formatFinding(
               caseResult,
               replayByCase.get(caseResult),
               knownSecrets,
+              language,
             ),
           )
           .join("\n");
@@ -119,42 +136,67 @@ function formatReport(
     result.notes && result.notes.length > 0
       ? [
           "",
-          "## Ограничения запуска",
+          message(language, "## Run limitations", "## Ограничения запуска"),
           "",
           ...result.notes.map(
-            (note) => `- ${escapeCell(redactText(note, knownSecrets))}`,
+            (note) =>
+              `- ${escapeCell(redactText(renderText(note, language), knownSecrets))}`,
           ),
         ]
       : [];
 
   return [
-    "# Отчёт BreakCurl",
+    message(language, "# BreakCurl report", "# Отчёт BreakCurl"),
     "",
-    "## Цель",
+    message(language, "## Target", "## Цель"),
     "",
-    `- Метод: \`${baselineRequest.method}\``,
+    message(
+      language,
+      `- Method: \`${baselineRequest.method}\``,
+      `- Метод: \`${baselineRequest.method}\``,
+    ),
     `- URL: \`${baselineRequest.url}\``,
-    `- Профиль: \`${result.profile ?? "quick"}\``,
+    message(
+      language,
+      `- Profile: \`${result.profile ?? "quick"}\``,
+      `- Профиль: \`${result.profile ?? "quick"}\``,
+    ),
     "",
-    "## Исходный запрос",
+    message(language, "## Baseline request", "## Исходный запрос"),
     "",
-    `- HTTP ${baseline.status} за ${baseline.latencyMs} мс`,
-    `- Fingerprint контракта: \`${responseSchemaFingerprint(baseline)}\``,
+    message(
+      language,
+      `- HTTP ${baseline.status} in ${baseline.latencyMs} ms`,
+      `- HTTP ${baseline.status} за ${baseline.latencyMs} мс`,
+    ),
+    message(
+      language,
+      `- Contract fingerprint: \`${responseSchemaFingerprint(baseline)}\``,
+      `- Fingerprint контракта: \`${responseSchemaFingerprint(baseline)}\``,
+    ),
     "",
-    "## Все проверки",
+    message(language, "## All checks", "## Все проверки"),
     "",
     allCases,
     "",
-    "## Находки",
+    message(language, "## Findings", "## Находки"),
     "",
     findingsSection,
     ...notes,
     "",
-    "## Итог",
+    message(language, "## Summary", "## Итог"),
     "",
-    `Проверок: ${result.cases.length}; FAIL: ${summary.FAIL}; WARN: ${summary.WARN}; INFO: ${summary.INFO}; PASS: ${summary.PASS}; ERROR: ${summary.ERROR}.`,
+    message(
+      language,
+      `Checks: ${result.cases.length}; FAIL: ${summary.FAIL}; WARN: ${summary.WARN}; INFO: ${summary.INFO}; PASS: ${summary.PASS}; ERROR: ${summary.ERROR}.`,
+      `Проверок: ${result.cases.length}; FAIL: ${summary.FAIL}; WARN: ${summary.WARN}; INFO: ${summary.INFO}; PASS: ${summary.PASS}; ERROR: ${summary.ERROR}.`,
+    ),
     "",
-    "Ответы API и секреты не записывались в отчёт. Fingerprint построен только по статусу и структуре ответа.",
+    message(
+      language,
+      "API response bodies and secrets were not written to the report. The fingerprint uses only the status and response structure.",
+      "Ответы API и секреты не записывались в отчёт. Fingerprint построен только по статусу и структуре ответа.",
+    ),
     "",
   ].join("\n");
 }
@@ -163,18 +205,28 @@ function formatCaseRow(
   caseResult: CaseResult,
   replayPath: string | undefined,
   knownSecrets: string[],
+  language: Language,
 ): string {
   const response = caseResult.response;
   const http = response.status === 0 ? "—" : String(response.status);
-  const replay = replayPath ? `[повтор](${toMarkdownPath(replayPath)})` : "—";
+  const replay = replayPath
+    ? `[${message(language, "replay", "повтор")}](${toMarkdownPath(replayPath)})`
+    : "—";
   return [
     caseResult.classification,
     caseResult.severity ?? "—",
     caseResult.mutation.category ?? "negative",
-    escapeCell(redactText(caseResult.mutation.description, knownSecrets)),
+    escapeCell(
+      redactText(
+        renderText(caseResult.mutation.description, language),
+        knownSecrets,
+      ),
+    ),
     caseResult.mutation.expectation ?? "legacy",
     http,
-    escapeCell(redactText(caseResult.reason, knownSecrets)),
+    escapeCell(
+      redactText(renderText(caseResult.reason, language), knownSecrets),
+    ),
     responseSchemaFingerprint(response),
     replay,
   ]
@@ -187,17 +239,34 @@ function formatFinding(
   caseResult: CaseResult,
   replayPath: string | undefined,
   knownSecrets: string[],
+  language: Language,
 ): string {
   const replayText = replayPath
-    ? ` — [безопасный cURL для повтора](${toMarkdownPath(replayPath)})`
+    ? message(
+        language,
+        ` — [sanitized replay cURL](${toMarkdownPath(replayPath)})`,
+        ` — [безопасный cURL для повтора](${toMarkdownPath(replayPath)})`,
+      )
     : "";
   const attributes = [
-    caseResult.severity ? `риск ${caseResult.severity}` : undefined,
-    caseResult.confidence ? `уверенность ${caseResult.confidence}` : undefined,
+    caseResult.severity
+      ? message(
+          language,
+          `risk ${caseResult.severity}`,
+          `риск ${caseResult.severity}`,
+        )
+      : undefined,
+    caseResult.confidence
+      ? message(
+          language,
+          `confidence ${caseResult.confidence}`,
+          `уверенность ${caseResult.confidence}`,
+        )
+      : undefined,
     ...(caseResult.securitySignals ?? []).map((signal) => signal.cwe),
   ].filter((item): item is string => Boolean(item));
   const suffix = attributes.length > 0 ? ` (${attributes.join(", ")})` : "";
-  return `- **${caseResult.classification}** ${escapeCell(redactText(caseResult.mutation.description, knownSecrets))}: ${escapeCell(redactText(caseResult.reason, knownSecrets))}${suffix}${replayText}`;
+  return `- **${caseResult.classification}** ${escapeCell(redactText(renderText(caseResult.mutation.description, language), knownSecrets))}: ${escapeCell(redactText(renderText(caseResult.reason, language), knownSecrets))}${suffix}${replayText}`;
 }
 
 function formatJsonReport(
@@ -208,6 +277,7 @@ function formatJsonReport(
 ): Record<string, unknown> {
   return {
     schemaVersion: 1,
+    language: "en",
     profile: result.profile ?? "quick",
     target: {
       method: baselineRequest.method,
@@ -219,7 +289,9 @@ function formatJsonReport(
       schemaFingerprint: responseSchemaFingerprint(result.baseline.response),
     },
     summary: countByClassification(result.cases),
-    notes: (result.notes ?? []).map((note) => redactText(note, knownSecrets)),
+    notes: (result.notes ?? []).map((note) =>
+      redactText(englishText(note), knownSecrets),
+    ),
     cases: result.cases.map((caseResult) => ({
       id: caseResult.mutation.id,
       category: caseResult.mutation.category ?? "negative",
@@ -227,14 +299,17 @@ function formatJsonReport(
       classification: caseResult.classification,
       severity: caseResult.severity ?? null,
       confidence: caseResult.confidence ?? null,
-      description: redactText(caseResult.mutation.description, knownSecrets),
+      description: redactText(
+        englishText(caseResult.mutation.description),
+        knownSecrets,
+      ),
       status: caseResult.response.status,
       latencyMs: caseResult.response.latencyMs,
-      reason: redactText(caseResult.reason, knownSecrets),
+      reason: redactText(englishText(caseResult.reason), knownSecrets),
       schemaFingerprint: responseSchemaFingerprint(caseResult.response),
       securitySignals: (caseResult.securitySignals ?? []).map((signal) => ({
         id: signal.id,
-        title: signal.title,
+        title: englishText(signal.title),
         severity: signal.severity,
         cwe: signal.cwe ?? null,
       })),

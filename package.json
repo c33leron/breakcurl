@@ -38,6 +38,18 @@
     "cli"
   ],
   "license": "MIT",
+  "author": "Bogdan Bobylev (https://github.com/c33leron)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c33leron/BreakCurl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/c33leron/BreakCurl/issues"
+  },
+  "homepage": "https://github.com/c33leron/BreakCurl#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "commander": "^14.0.0",
     "picocolors": "^1.1.1",

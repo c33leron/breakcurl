@@ -55,6 +55,13 @@ describe("installed-style CLI flow", () => {
         return;
       }
       const body = JSON.parse(rawBody) as Record<string, unknown>;
+      if (path === "/rate-limit") {
+        const isBaseline = body.email === "qa@example.com" && body.age === 30;
+        response.statusCode = isBaseline ? 201 : 429;
+        if (!isBaseline) response.setHeader("Retry-After", "30");
+        response.end(JSON.stringify({ status: response.statusCode }));
+        return;
+      }
       if (path === "/mutation-error") {
         response.statusCode =
           body.email === "qa@example.com" && body.age === 30 ? 201 : 302;
@@ -121,7 +128,7 @@ describe("installed-style CLI flow", () => {
     const artifacts = await readFilesRecursively(outputDirectory);
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toContain("Перед запуском");
+    expect(result.stdout).toContain("RUN PLAN");
     expect(result.stdout).toContain("PASS");
     expect(result.stdout).toContain("WARN");
     expect(result.stdout).toContain("FAIL");
@@ -147,8 +154,10 @@ describe("installed-style CLI flow", () => {
     );
 
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain("profile     QUICK");
+    expect(result.stdout).not.toContain("v0.1.0");
     expect(result.stdout).toContain(
-      "Проверок: 1; FAIL: 0; WARN: 0; INFO: 0; PASS: 1; ERROR: 0",
+      "PASS 1   INFO 0   WARN 0   FAIL 0   ERROR 0",
     );
     expect((requests.get("/ok") ?? 0) - before).toBe(2);
   });
@@ -169,7 +178,7 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain("Мутации не отправлялись");
+    expect(result.stderr).toContain("No mutations were sent");
     expect((requests.get("/baseline-fail") ?? 0) - before).toBe(1);
     await expect(access(outputDirectory)).rejects.toThrow();
   });
@@ -187,7 +196,7 @@ describe("installed-style CLI flow", () => {
     const result = await runCli([inputFile, "--allow-mutation", "--no-color"]);
 
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain("Исходный запрос вернул 422");
+    expect(result.stderr).toContain("The baseline request returned 422");
     expect((requests.get("/baseline-client-fail") ?? 0) - before).toBe(1);
   });
 
@@ -208,7 +217,35 @@ describe("installed-style CLI flow", () => {
 
     expect(result.code).toBe(2);
     expect(result.stdout).toContain("ERROR");
-    expect(result.stdout).toContain("→ 302");
+    expect(result.stdout).toMatch(/\[1\/1\] ERROR\s+STRUCTURE\s+302/);
+  });
+
+  it("shows live progress and stops the run after HTTP 429", async () => {
+    const directory = await temporaryDirectory();
+    const inputFile = join(directory, "rate-limit.curl");
+    const outputDirectory = join(directory, "output");
+    const before = requests.get("/rate-limit") ?? 0;
+    await writeFile(inputFile, workingCurl(`${origin}/rate-limit`), "utf8");
+
+    const result = await runCli([
+      inputFile,
+      "--allow-mutation",
+      "--max-cases",
+      "5",
+      "--no-color",
+      "--output",
+      outputDirectory,
+    ]);
+    const artifacts = await readFilesRecursively(outputDirectory);
+
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain("CHECKS");
+    expect(result.stdout).toContain("[1/5] ERROR");
+    expect(result.stdout).toContain("SAFETY STOP");
+    expect(result.stdout).toContain("Retry-After: 30");
+    expect(result.stdout).toContain("skipped checks: 4");
+    expect(artifacts).toContain("Safety stop: received HTTP 429");
+    expect((requests.get("/rate-limit") ?? 0) - before).toBe(2);
   });
 
   it("requires authorization before any requests in a non-interactive run", async () => {
@@ -220,7 +257,7 @@ describe("installed-style CLI flow", () => {
     const result = await runCli([inputFile, "--no-color"]);
 
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain("требуется --allow-mutation");
+    expect(result.stderr).toContain("require --allow-mutation");
     expect((requests.get("/ok") ?? 0) - before).toBe(0);
   });
 
@@ -259,8 +296,8 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Запросы: 0 (dry-run)");
-    expect(result.stdout).toContain("HTTP-запросы не отправлены");
+    expect(result.stdout).toContain("budget      0 requests");
+    expect(result.stdout).toContain("no HTTP requests were sent");
     expect(result.stdout).toContain("[authentication]");
     expect((requests.get("/ok") ?? 0) - before).toBe(0);
   });
@@ -285,9 +322,11 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("PASS  все credentials удалены → 401");
-    expect(result.stdout).toContain(
-      "PASS  credentials заменены на невалидные → 401",
+    expect(result.stdout).toMatch(
+      /PASS\s+AUTH\s+401\s+\d+ms\s+all credentials removed/,
+    );
+    expect(result.stdout).toMatch(
+      /PASS\s+AUTH\s+401\s+\d+ms\s+credentials replaced with invalid values/,
     );
     expect((requests.get("/auth-protected") ?? 0) - before).toBe(3);
   });
@@ -310,8 +349,10 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toContain("FAIL  все credentials удалены → 201");
-    expect(result.stdout).toContain("FAIL: 2");
+    expect(result.stdout).toMatch(
+      /FAIL\s+AUTH\s+201\s+\d+ms\s+all credentials removed/,
+    );
+    expect(result.stdout).toContain("FAIL 2");
   });
 
   it("runs an explicit custom value before generated checks", async () => {
@@ -334,7 +375,7 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Пользовательское значение для $.age");
+    expect(result.stdout).toContain("Custom value for $.age");
     expect(result.stdout).toContain("WARN");
   });
 
@@ -350,7 +391,7 @@ describe("installed-style CLI flow", () => {
         maxCases: 1,
         customCases: [
           {
-            name: "Возраст строкой должен быть отклонён",
+            name: "String age must be rejected",
             path: "$.age",
             operation: "set",
             value: "wrong",
@@ -372,8 +413,30 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Возраст строкой должен быть отклонён");
+    expect(result.stdout).toContain("String age must be rejected");
     expect(result.stdout).toContain("WARN");
+  });
+
+  it("switches the human interface to Russian with --lang ru", async () => {
+    const directory = await temporaryDirectory();
+    const inputFile = join(directory, "request.curl");
+    const before = requests.get("/ok") ?? 0;
+    await writeFile(inputFile, workingCurl(`${origin}/ok`), "utf8");
+
+    const result = await runCli([
+      inputFile,
+      "--lang",
+      "ru",
+      "--dry-run",
+      "--max-cases",
+      "1",
+      "--no-color",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("ПЛАН ЗАПУСКА");
+    expect(result.stdout).toContain("HTTP-запросы не отправлены");
+    expect((requests.get("/ok") ?? 0) - before).toBe(0);
   });
 });
 

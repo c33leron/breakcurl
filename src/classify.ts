@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { localized, renderText } from "./i18n.js";
 import type {
   CaseResult,
   Classification,
@@ -7,6 +8,7 @@ import type {
   HttpResult,
   MutationCase,
   SecuritySignal,
+  TranslatableText,
 } from "./types.js";
 
 export interface ClassificationContext {
@@ -16,7 +18,7 @@ export interface ClassificationContext {
 
 export interface ClassificationResult {
   classification: Classification;
-  reason: string;
+  reason: TranslatableText;
   severity?: FindingSeverity;
   confidence?: FindingConfidence;
   securitySignals?: SecuritySignal[];
@@ -30,8 +32,10 @@ export function classifyCase(
   if (response.timedOut) {
     return {
       classification: "WARN",
-      reason:
+      reason: localized(
+        "The request timed out after a successful baseline request.",
         "Запрос завершился по тайм-ауту после успешного исходного запроса.",
+      ),
       severity: "MEDIUM",
       confidence: "HIGH",
     };
@@ -40,9 +44,22 @@ export function classifyCase(
   if (response.connectionError) {
     return {
       classification: "WARN",
-      reason: "После успешного исходного запроса произошла ошибка соединения.",
+      reason: localized(
+        "A connection error occurred after a successful baseline request.",
+        "После успешного исходного запроса произошла ошибка соединения.",
+      ),
       severity: "MEDIUM",
       confidence: "MEDIUM",
+    };
+  }
+
+  if (response.status === 429) {
+    return {
+      classification: "ERROR",
+      reason: localized(
+        "The API returned HTTP 429. The check does not prove validation behavior because the rate limit was reached.",
+        "API вернул HTTP 429. Результат проверки не доказывает валидацию: достигнут rate limit.",
+      ),
     };
   }
 
@@ -52,7 +69,10 @@ export function classifyCase(
     return withSignals(
       {
         classification: "FAIL",
-        reason: `API вернул HTTP ${response.status}.`,
+        reason: localized(
+          `The API returned HTTP ${response.status}.`,
+          `API вернул HTTP ${response.status}.`,
+        ),
         severity: "HIGH",
         confidence: "HIGH",
       },
@@ -68,7 +88,10 @@ export function classifyCase(
     return withSignals(
       {
         classification: "FAIL",
-        reason: "Ответ объявлен как JSON, но содержит невалидный JSON.",
+        reason: localized(
+          "The response declares JSON but contains invalid JSON.",
+          "Ответ объявлен как JSON, но содержит невалидный JSON.",
+        ),
         severity: "MEDIUM",
         confidence: "HIGH",
       },
@@ -79,7 +102,14 @@ export function classifyCase(
   if (securitySignals.length > 0) {
     return {
       classification: "WARN",
-      reason: securitySignals.map((signal) => signal.title).join("; "),
+      reason: localized(
+        securitySignals
+          .map((signal) => renderText(signal.title, "en"))
+          .join("; "),
+        securitySignals
+          .map((signal) => renderText(signal.title, "ru"))
+          .join("; "),
+      ),
       severity: highestSeverity(securitySignals),
       confidence: "HIGH",
       securitySignals,
@@ -93,7 +123,10 @@ export function classifyCase(
   if (response.status >= 300 && response.status < 400) {
     return {
       classification: "ERROR",
-      reason: `Получен redirect HTTP ${response.status}; BreakCurl не переходит по redirects.`,
+      reason: localized(
+        `Received HTTP ${response.status} redirect; BreakCurl does not follow redirects.`,
+        `Получен redirect HTTP ${response.status}; BreakCurl не переходит по redirects.`,
+      ),
     };
   }
 
@@ -102,13 +135,19 @@ export function classifyCase(
     if (response.status >= 400 && response.status < 500) {
       return {
         classification: "PASS",
-        reason: `API контролируемо отклонил проверку с HTTP ${response.status}.`,
+        reason: localized(
+          `The API rejected the check in a controlled way with HTTP ${response.status}.`,
+          `API контролируемо отклонил проверку с HTTP ${response.status}.`,
+        ),
       };
     }
     if (isSuccessful(response.status)) {
       return {
         classification: "WARN",
-        reason: `API принял значение, которое ожидалось отклонить, с HTTP ${response.status}.`,
+        reason: localized(
+          `The API accepted a value that was expected to be rejected with HTTP ${response.status}.`,
+          `API принял значение, которое ожидалось отклонить, с HTTP ${response.status}.`,
+        ),
         severity: "MEDIUM",
         confidence: "MEDIUM",
       };
@@ -119,13 +158,19 @@ export function classifyCase(
     if (isSuccessful(response.status)) {
       return {
         classification: "PASS",
-        reason: `API выполнил ожидаемое принятие с HTTP ${response.status}.`,
+        reason: localized(
+          `The API accepted the value as expected with HTTP ${response.status}.`,
+          `API выполнил ожидаемое принятие с HTTP ${response.status}.`,
+        ),
       };
     }
     if (response.status >= 400 && response.status < 500) {
       return {
         classification: "WARN",
-        reason: `API отклонил значение, которое ожидалось принять, с HTTP ${response.status}.`,
+        reason: localized(
+          `The API rejected a value that was expected to be accepted with HTTP ${response.status}.`,
+          `API отклонил значение, которое ожидалось принять, с HTTP ${response.status}.`,
+        ),
         severity: "LOW",
         confidence: "HIGH",
       };
@@ -136,7 +181,10 @@ export function classifyCase(
     if (isSuccessful(response.status) || isClientError(response.status)) {
       return {
         classification: "INFO",
-        reason: `Наблюдение без жёсткого oracle: HTTP ${response.status}.`,
+        reason: localized(
+          `Observation without a strict oracle: HTTP ${response.status}.`,
+          `Наблюдение без жёсткого oracle: HTTP ${response.status}.`,
+        ),
       };
     }
   }
@@ -148,7 +196,10 @@ export function classifyCase(
   ) {
     return {
       classification: "WARN",
-      reason: `API принял ${mutation.kind === "remove" ? "запрос с удалённым полем" : "значение неправильного типа"} с HTTP ${response.status}.`,
+      reason: localized(
+        `The API accepted ${mutation.kind === "remove" ? "a request with a removed field" : "a value of the wrong type"} with HTTP ${response.status}.`,
+        `API принял ${mutation.kind === "remove" ? "запрос с удалённым полем" : "значение неправильного типа"} с HTTP ${response.status}.`,
+      ),
       severity: "MEDIUM",
       confidence: "MEDIUM",
     };
@@ -157,20 +208,29 @@ export function classifyCase(
   if (isClientError(response.status)) {
     return {
       classification: "PASS",
-      reason: `API отклонил мутацию с HTTP ${response.status}.`,
+      reason: localized(
+        `The API rejected the mutation with HTTP ${response.status}.`,
+        `API отклонил мутацию с HTTP ${response.status}.`,
+      ),
     };
   }
 
   if (isSuccessful(response.status)) {
     return {
       classification: "PASS",
-      reason: `API обработал мутацию с HTTP ${response.status}.`,
+      reason: localized(
+        `The API processed the mutation with HTTP ${response.status}.`,
+        `API обработал мутацию с HTTP ${response.status}.`,
+      ),
     };
   }
 
   return {
     classification: "ERROR",
-    reason: `Получен неожиданный HTTP-статус ${response.status}.`,
+    reason: localized(
+      `Received unexpected HTTP status ${response.status}.`,
+      `Получен неожиданный HTTP-статус ${response.status}.`,
+    ),
   };
 }
 
@@ -199,7 +259,10 @@ function classifyAuthentication(
   if (response.status === 401 || response.status === 403) {
     return {
       classification: "PASS",
-      reason: `API отклонил auth-probe с HTTP ${response.status}.`,
+      reason: localized(
+        `The API rejected the auth probe with HTTP ${response.status}.`,
+        `API отклонил auth-probe с HTTP ${response.status}.`,
+      ),
     };
   }
 
@@ -212,14 +275,23 @@ function classifyAuthentication(
     return {
       classification: expectsAuth ? "FAIL" : "WARN",
       reason: similar
-        ? `Auth-probe получил HTTP ${response.status}, а контракт ответа совпал с авторизованным исходным запросом.`
-        : `Auth-probe получил успешный HTTP ${response.status}; endpoint может быть публичным, это нужно подтвердить требованиями.`,
+        ? localized(
+            `The auth probe returned HTTP ${response.status}, and its response contract matched the authorized baseline request.`,
+            `Auth-probe получил HTTP ${response.status}, а контракт ответа совпал с авторизованным исходным запросом.`,
+          )
+        : localized(
+            `The auth probe returned successful HTTP ${response.status}; the endpoint may be public and must be checked against requirements.`,
+            `Auth-probe получил успешный HTTP ${response.status}; endpoint может быть публичным, это нужно подтвердить требованиями.`,
+          ),
       severity: expectsAuth ? "HIGH" : "MEDIUM",
       confidence: similar ? "HIGH" : "MEDIUM",
       securitySignals: [
         {
           id: "authentication-not-enforced",
-          title: "Успешный ответ без корректных credentials",
+          title: localized(
+            "Successful response without valid credentials",
+            "Успешный ответ без корректных credentials",
+          ),
           severity: expectsAuth ? "HIGH" : "MEDIUM",
           cwe: "CWE-306",
         },
@@ -230,7 +302,10 @@ function classifyAuthentication(
   if (isClientError(response.status)) {
     return {
       classification: "WARN",
-      reason: `Auth-probe вернул HTTP ${response.status}, но только 401/403 доказывает auth-отказ.`,
+      reason: localized(
+        `The auth probe returned HTTP ${response.status}, but only 401/403 proves an authentication rejection.`,
+        `Auth-probe вернул HTTP ${response.status}, но только 401/403 доказывает auth-отказ.`,
+      ),
       severity: "LOW",
       confidence: "HIGH",
     };
@@ -238,7 +313,10 @@ function classifyAuthentication(
 
   return {
     classification: "ERROR",
-    reason: `Auth-probe вернул неожиданный HTTP ${response.status}.`,
+    reason: localized(
+      `The auth probe returned unexpected HTTP ${response.status}.`,
+      `Auth-probe вернул неожиданный HTTP ${response.status}.`,
+    ),
   };
 }
 
@@ -255,7 +333,10 @@ function detectSecuritySignals(
   ) {
     signals.push({
       id: "internal-details",
-      title: "Ответ раскрывает stack trace или внутренний путь",
+      title: localized(
+        "Response exposes a stack trace or internal path",
+        "Ответ раскрывает stack trace или внутренний путь",
+      ),
       severity: "MEDIUM",
       cwe: "CWE-209",
     });
@@ -267,7 +348,10 @@ function detectSecuritySignals(
   ) {
     signals.push({
       id: "database-error",
-      title: "Ответ раскрывает ошибку базы данных или ORM",
+      title: localized(
+        "Response exposes a database or ORM error",
+        "Ответ раскрывает ошибку базы данных или ORM",
+      ),
       severity: "HIGH",
       cwe: "CWE-209",
     });
@@ -281,7 +365,10 @@ function detectSecuritySignals(
   ) {
     signals.push({
       id: "secret-exposure",
-      title: "Ответ, вероятно, содержит credential или private key",
+      title: localized(
+        "Response may contain a credential or private key",
+        "Ответ, вероятно, содержит credential или private key",
+      ),
       severity: "HIGH",
       cwe: "CWE-200",
     });
@@ -293,7 +380,10 @@ function detectSecuritySignals(
   ) {
     signals.push({
       id: "html-reflection",
-      title: "Markup probe без экранирования отражён в HTML-ответе",
+      title: localized(
+        "Markup probe is reflected unescaped in an HTML response",
+        "Markup probe без экранирования отражён в HTML-ответе",
+      ),
       severity: "MEDIUM",
       cwe: "CWE-79",
     });
@@ -301,7 +391,10 @@ function detectSecuritySignals(
   if (getHeader(response.headers, "x-powered-by")) {
     signals.push({
       id: "technology-header",
-      title: "Ответ раскрывает технологию через X-Powered-By",
+      title: localized(
+        "Response exposes technology through X-Powered-By",
+        "Ответ раскрывает технологию через X-Powered-By",
+      ),
       severity: "LOW",
       cwe: "CWE-200",
     });

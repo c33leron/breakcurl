@@ -1,16 +1,25 @@
 import { createServer } from "node:http";
-import { createColors } from "picocolors";
 import { classifyCase } from "./classify.js";
+import { message } from "./i18n.js";
 import { generateChecks, requestForCase } from "./mutations.js";
 import { redactUrl } from "./redact.js";
 import { writeReport } from "./report.js";
 import { sendRequest } from "./runner.js";
-import type { CaseResult, ParsedCurl, RunResult } from "./types.js";
+import {
+  printBanner,
+  printBaseline,
+  printCaseLine,
+  printKeyValue,
+  printResultSummary,
+  printSection,
+} from "./terminal.js";
+import type { CaseResult, Language, ParsedCurl, RunResult } from "./types.js";
 
 interface DemoOptions {
   timeoutMs: number;
   outputDirectory: string;
   color: boolean;
+  language: Language;
 }
 
 const CANARY = "CANARY_SUPER_SECRET_123";
@@ -78,10 +87,21 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
       },
     };
 
-    console.log("BreakCurl v0.1.0 — demo\n\nИсходный запрос");
+    printBanner(
+      message(options.language, "LOCAL DEMO", "ЛОКАЛЬНАЯ ДЕМО"),
+      options.color,
+    );
+    printSection(
+      message(options.language, "BASELINE", "ИСХОДНЫЙ ЗАПРОС"),
+      options.color,
+    );
     const baselineResponse = await sendRequest(request, options.timeoutMs);
-    console.log(
-      `  ${request.method} ${redactUrl(request.url)} → ${baselineResponse.status} (${baselineResponse.latencyMs} ms)`,
+    printBaseline(
+      request.method,
+      redactUrl(request.url),
+      baselineResponse.status,
+      baselineResponse.latencyMs,
+      options.color,
     );
     if (baselineResponse.status < 200 || baselineResponse.status >= 300)
       return false;
@@ -90,6 +110,7 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
       profile: "full",
       maxCases: 30,
       expectAuth: true,
+      language: options.language,
     });
     const cases: CaseResult[] = [];
     for (const mutation of generatedChecks.cases) {
@@ -111,6 +132,7 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
       cases,
       profile: "full",
       notes: generatedChecks.notes,
+      language: options.language,
     };
     const generated = await writeReport(result, options.outputDirectory);
     printDemo(
@@ -119,6 +141,7 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
       generated.jsonReportPath,
       generated.findingPaths,
       options.color,
+      options.language,
     );
 
     const classes = new Set(cases.map((item) => item.classification));
@@ -136,41 +159,27 @@ function printDemo(
   jsonReportPath: string,
   findingPaths: string[],
   colorEnabled: boolean,
+  language: Language,
 ): void {
-  const colors = createColors(colorEnabled);
-  console.log("\nНегативные проверки");
-  for (const item of result.cases) {
-    const label =
-      item.classification === "FAIL"
-        ? colors.red("FAIL")
-        : item.classification === "WARN"
-          ? colors.yellow("WARN")
-          : item.classification === "INFO"
-            ? colors.cyan("INFO")
-            : colors.green("PASS");
-    console.log(
-      `  ${label.padEnd(5)} ${item.mutation.description} → ${item.response.status}`,
-    );
+  printSection(message(language, "CHECKS", "ПРОВЕРКИ"), colorEnabled);
+  for (const [index, item] of result.cases.entries()) {
+    printCaseLine(item, index, result.cases.length, colorEnabled, language);
   }
-  const failed = result.cases.filter(
-    (item) => item.classification === "FAIL",
-  ).length;
-  const warned = result.cases.filter(
-    (item) => item.classification === "WARN",
-  ).length;
-  const passed = result.cases.filter(
-    (item) => item.classification === "PASS",
-  ).length;
-  const informed = result.cases.filter(
-    (item) => item.classification === "INFO",
-  ).length;
-  console.log("\nИтог");
-  console.log(
-    `  Проверок: ${result.cases.length}; FAIL: ${failed}; WARN: ${warned}; INFO: ${informed}; PASS: ${passed}`,
+  printSection(message(language, "RUN SUMMARY", "ИТОГ"), colorEnabled);
+  printResultSummary(result.cases, colorEnabled);
+  printSection(message(language, "ARTIFACTS", "АРТЕФАКТЫ"), colorEnabled);
+  printKeyValue(message(language, "report", "отчёт"), reportPath, colorEnabled);
+  printKeyValue("json", jsonReportPath, colorEnabled);
+  for (const path of findingPaths) {
+    printKeyValue(message(language, "finding", "находка"), path, colorEnabled);
+  }
+  printKeyValue(
+    message(language, "privacy", "приватность"),
+    message(
+      language,
+      "Secrets redacted before writing",
+      "Секреты скрыты до записи",
+    ),
+    colorEnabled,
   );
-  console.log("\nСоздано");
-  console.log(`  ${reportPath}`);
-  console.log(`  ${jsonReportPath}`);
-  for (const path of findingPaths) console.log(`  ${path}`);
-  console.log("\nСекреты были скрыты до записи файлов.");
 }
