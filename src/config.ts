@@ -30,6 +30,7 @@ const EXPECTATIONS = new Set<CheckExpectation>([
   "observe",
 ]);
 const CONFIG_KEYS = new Set([
+  "$schema",
   "profile",
   "maxCases",
   "onlyPaths",
@@ -74,6 +75,15 @@ export async function loadConfig(
         language,
         `Unknown config fields: ${unknownKeys.join(", ")}.`,
         `Неизвестные поля конфига: ${unknownKeys.join(", ")}.`,
+      ),
+    );
+  }
+  if (raw.$schema !== undefined && typeof raw.$schema !== "string") {
+    throw new Error(
+      message(
+        language,
+        "$schema must be a string.",
+        "$schema должен быть строкой.",
       ),
     );
   }

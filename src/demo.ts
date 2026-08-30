@@ -20,6 +20,8 @@ interface DemoOptions {
   outputDirectory: string;
   color: boolean;
   language: Language;
+  junitPath?: string | undefined;
+  sarifPath?: string | undefined;
 }
 
 const CANARY = "CANARY_SUPER_SECRET_123";
@@ -134,12 +136,17 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
       notes: generatedChecks.notes,
       language: options.language,
     };
-    const generated = await writeReport(result, options.outputDirectory);
+    const generated = await writeReport(result, options.outputDirectory, {
+      junitPath: options.junitPath,
+      sarifPath: options.sarifPath,
+    });
     printDemo(
       result,
       generated.reportPath,
       generated.jsonReportPath,
       generated.findingPaths,
+      generated.junitPath,
+      generated.sarifPath,
       options.color,
       options.language,
     );
@@ -158,6 +165,8 @@ function printDemo(
   reportPath: string,
   jsonReportPath: string,
   findingPaths: string[],
+  junitPath: string | undefined,
+  sarifPath: string | undefined,
   colorEnabled: boolean,
   language: Language,
 ): void {
@@ -170,6 +179,8 @@ function printDemo(
   printSection(message(language, "ARTIFACTS", "АРТЕФАКТЫ"), colorEnabled);
   printKeyValue(message(language, "report", "отчёт"), reportPath, colorEnabled);
   printKeyValue("json", jsonReportPath, colorEnabled);
+  if (junitPath) printKeyValue("junit", junitPath, colorEnabled);
+  if (sarifPath) printKeyValue("sarif", sarifPath, colorEnabled);
   for (const path of findingPaths) {
     printKeyValue(message(language, "finding", "находка"), path, colorEnabled);
   }

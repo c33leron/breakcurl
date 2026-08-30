@@ -1,6 +1,6 @@
 {
   "name": "breakcurl",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Security-focused negative API testing from one working cURL",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
     "CHANGELOG.md",
     "SECURITY.md",
     "breakcurl.config.example.json",
+    "breakcurl.config.schema.json",
     "LICENSE"
   ],
   "engines": {
@@ -35,7 +36,11 @@
     "negative-testing",
     "security-testing",
     "testing",
-    "cli"
+    "cli",
+    "sarif",
+    "junit",
+    "dast",
+    "qa"
   ],
   "license": "MIT",
   "author": "Bogdan Bobylev (https://github.com/c33leron)",

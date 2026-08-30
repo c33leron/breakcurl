@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/c33leron/BreakCurl/main/breakcurl.config.schema.json",
   "profile": "full",
   "maxCases": 90,
   "onlyPaths": ["$.email", "$.age", "$.profile"],

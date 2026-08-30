@@ -1,5 +1,6 @@
 import { createReadStream, openSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError } from "commander";
@@ -41,6 +42,7 @@ import type {
   RunResult,
   TranslatableText,
 } from "./types.js";
+import { VERSION } from "./version.js";
 
 interface CliOptions {
   lang: Language;
@@ -54,6 +56,8 @@ interface CliOptions {
   expectAuth?: boolean;
   dryRun?: boolean;
   config?: string;
+  junit?: string | true;
+  sarif?: string | true;
   only: string[];
   exclude: string[];
   set: string[];
@@ -79,7 +83,7 @@ const collectValue = (value: string, previous: string[]): string[] => [
 
 const program = new Command()
   .name("breakcurl")
-  .version("0.1.0", "-V, --version", m("show version", "показать версию"))
+  .version(VERSION, "-V, --version", m("show version", "показать версию"))
   .helpOption("-h, --help", m("show help", "показать справку"))
   .configureHelp({
     optionDescription: (option) => {
@@ -182,6 +186,20 @@ const program = new Command()
     m(
       "JSON config with custom checks",
       "JSON-конфиг пользовательских проверок",
+    ),
+  )
+  .option(
+    "--junit [file]",
+    m(
+      "also write a JUnit XML report for CI (default: breakcurl-output/junit.xml)",
+      "дополнительно сохранить отчёт JUnit XML для CI (по умолчанию: breakcurl-output/junit.xml)",
+    ),
+  )
+  .option(
+    "--sarif [file]",
+    m(
+      "also write a SARIF 2.1.0 report for GitHub code scanning (default: breakcurl-output/sarif.json)",
+      "дополнительно сохранить отчёт SARIF 2.1.0 для GitHub code scanning (по умолчанию: breakcurl-output/sarif.json)",
     ),
   )
   .option(
@@ -397,12 +415,25 @@ const program = new Command()
       notes: runNotes,
       language,
     };
-    const generated = await writeReport(result, options.output);
+    const generated = await writeReport(result, options.output, {
+      junitPath: resolveReportOption(
+        options.junit,
+        "junit.xml",
+        options.output,
+      ),
+      sarifPath: resolveReportOption(
+        options.sarif,
+        "sarif.json",
+        options.output,
+      ),
+    });
     printResults(
       result,
       generated.reportPath,
       generated.jsonReportPath,
       generated.findingPaths,
+      generated.junitPath,
+      generated.sarifPath,
       options.color,
       language,
     );
@@ -425,6 +456,16 @@ program
       outputDirectory: options.output,
       color: options.color,
       language,
+      junitPath: resolveReportOption(
+        options.junit,
+        "junit.xml",
+        options.output,
+      ),
+      sarifPath: resolveReportOption(
+        options.sarif,
+        "sarif.json",
+        options.output,
+      ),
     });
     process.exitCode = success ? 0 : 2;
   });
@@ -453,6 +494,15 @@ function positiveInteger(
     );
   }
   return parsed;
+}
+
+function resolveReportOption(
+  value: string | true | undefined,
+  defaultName: string,
+  outputDirectory: string,
+): string | undefined {
+  if (value === undefined) return undefined;
+  return value === true ? join(outputDirectory, defaultName) : value;
 }
 
 async function readCurlInput(language: Language): Promise<string> {
@@ -634,6 +684,8 @@ function printResults(
   reportPath: string,
   jsonReportPath: string,
   findingPaths: string[],
+  junitPath: string | undefined,
+  sarifPath: string | undefined,
   colorEnabled: boolean,
   language: Language,
 ): void {
@@ -642,6 +694,8 @@ function printResults(
   printSection(message(language, "ARTIFACTS", "АРТЕФАКТЫ"), colorEnabled);
   printKeyValue(message(language, "report", "отчёт"), reportPath, colorEnabled);
   printKeyValue("json", jsonReportPath, colorEnabled);
+  if (junitPath) printKeyValue("junit", junitPath, colorEnabled);
+  if (sarifPath) printKeyValue("sarif", sarifPath, colorEnabled);
   for (const path of findingPaths) {
     printKeyValue(message(language, "finding", "находка"), path, colorEnabled);
   }

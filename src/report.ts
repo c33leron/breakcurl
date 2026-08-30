@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 import { quote } from "shell-quote";
 import { responseSchemaFingerprint } from "./classify.js";
 import { englishText, message, renderText } from "./i18n.js";
+import { formatJunitXml } from "./junit.js";
 import { requestForCase } from "./mutations.js";
 import {
   collectSensitiveValues,
@@ -10,6 +11,7 @@ import {
   sanitizeRequest,
 } from "./redact.js";
 import { isUnsafeTransportHeader } from "./runner.js";
+import { formatSarif } from "./sarif.js";
 import type {
   CaseResult,
   Classification,
@@ -22,12 +24,20 @@ export interface ReportFiles {
   reportPath: string;
   jsonReportPath: string;
   findingPaths: string[];
+  junitPath?: string | undefined;
+  sarifPath?: string | undefined;
+}
+
+export interface ReportExtras {
+  junitPath?: string | undefined;
+  sarifPath?: string | undefined;
 }
 
 /** Writes sanitized human and machine-readable reports plus replay cURLs. */
 export async function writeReport(
   result: RunResult,
   outputDirectory: string,
+  extras: ReportExtras = {},
 ): Promise<ReportFiles> {
   const findingsDirectory = join(outputDirectory, "findings");
   await mkdir(findingsDirectory, { recursive: true });
@@ -72,7 +82,27 @@ export async function writeReport(
     `${JSON.stringify(formatJsonReport(result, baselineRequest, replayByCase, knownSecrets), null, 2)}\n`,
     "utf8",
   );
-  return { reportPath, jsonReportPath, findingPaths };
+  if (extras.junitPath) {
+    await writeFile(
+      extras.junitPath,
+      formatJunitXml(result, knownSecrets),
+      "utf8",
+    );
+  }
+  if (extras.sarifPath) {
+    await writeFile(
+      extras.sarifPath,
+      formatSarif(result, knownSecrets),
+      "utf8",
+    );
+  }
+  return {
+    reportPath,
+    jsonReportPath,
+    findingPaths,
+    junitPath: extras.junitPath,
+    sarifPath: extras.sarifPath,
+  };
 }
 
 function formatReport(

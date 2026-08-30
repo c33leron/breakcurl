@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — CI integration and onboarding
+
+- `--junit [file]` writes a JUnit XML report: `FAIL` → failure, `ERROR` → error, `WARN` → skipped.
+- `--sarif [file]` writes a SARIF 2.1.0 report for GitHub code scanning, with CWE-linked rules and stable case fingerprints.
+- Official [GitHub Action](action/) to run BreakCurl in CI and publish findings to the Security tab.
+- JSON Schema for `breakcurl.config.json` (`$schema` is now accepted) with editor autocompletion.
+- README overhaul: 20-second demo first, real terminal and report samples, comparison with alternatives, FAQ, and a CI guide.
+
 ## 0.1.0 — preparing the first release
 
 - Interactive Copy as cURL input with a sanitized preflight.

@@ -66,4 +66,23 @@ describe("BreakCurl config", () => {
     await expect(loadConfig(malformed)).rejects.toThrow("requires value");
     await expect(loadConfig(unknown, "ru")).rejects.toThrow("Неизвестные поля");
   });
+
+  it("accepts a $schema reference for editor autocompletion", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "breakcurl-config-"));
+    directories.push(directory);
+    const path = join(directory, "breakcurl.config.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        $schema:
+          "https://raw.githubusercontent.com/c33leron/BreakCurl/main/breakcurl.config.schema.json",
+        profile: "negative",
+      }),
+      "utf8",
+    );
+
+    await expect(loadConfig(path)).resolves.toMatchObject({
+      profile: "negative",
+    });
+  });
 });

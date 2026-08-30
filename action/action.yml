@@ -1,0 +1,101 @@
+name: "BreakCurl"
+description: >-
+  Run BreakCurl negative and security API checks from a saved cURL file,
+  write JUnit and SARIF reports, and publish findings to GitHub code scanning.
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  curl-file:
+    description: "File containing the working Copy as cURL command to replay. Use a synthetic, low-privilege test request against a non-production environment."
+    required: true
+  profile:
+    description: "Check profile: quick, negative, security, or full."
+    required: false
+    default: "quick"
+  max-cases:
+    description: "Maximum number of checks (1-200). Empty means the profile default."
+    required: false
+    default: ""
+  expect-auth:
+    description: "Require auth probes to return 401/403 (profile security or full)."
+    required: false
+    default: "false"
+  timeout:
+    description: "Per-request timeout in milliseconds."
+    required: false
+    default: "10000"
+  lang:
+    description: "Interface language for report.md: en or ru. report.json stays English."
+    required: false
+    default: "en"
+  output-directory:
+    description: "Directory for report.md, report.json, junit.xml, and sarif.json."
+    required: false
+    default: "breakcurl-output"
+  breakcurl-version:
+    description: "breakcurl npm package version to run. JUnit and SARIF require 0.2.0+."
+    required: false
+    default: "latest"
+  upload-sarif:
+    description: "Upload sarif.json to GitHub code scanning. Requires security-events: write permission."
+    required: false
+    default: "true"
+
+outputs:
+  report-path:
+    description: "Path to the Markdown report."
+    value: ${{ steps.run.outputs.report-path }}
+  junit-path:
+    description: "Path to the JUnit XML report."
+    value: ${{ steps.run.outputs.junit-path }}
+  sarif-path:
+    description: "Path to the SARIF report."
+    value: ${{ steps.run.outputs.sarif-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: run
+      shell: bash
+      env:
+        BC_CURL_FILE: ${{ inputs.curl-file }}
+        BC_PROFILE: ${{ inputs.profile }}
+        BC_MAX_CASES: ${{ inputs.max-cases }}
+        BC_EXPECT_AUTH: ${{ inputs.expect-auth }}
+        BC_TIMEOUT: ${{ inputs.timeout }}
+        BC_OUTPUT: ${{ inputs.output-directory }}
+        BC_VERSION: ${{ inputs.breakcurl-version }}
+      run: |
+        set +e
+        args=("$BC_CURL_FILE" --profile "$BC_PROFILE" --timeout "$BC_TIMEOUT" --allow-mutation --no-color --output "$BC_OUTPUT" --junit --sarif)
+        if [ -n "$BC_MAX_CASES" ]; then
+          args+=(--max-cases "$BC_MAX_CASES")
+        fi
+        if [ "$BC_EXPECT_AUTH" = "true" ]; then
+          args+=(--expect-auth)
+        fi
+        npx -y breakcurl@"$BC_VERSION" "${args[@]}"
+        code=$?
+        echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+        echo "report-path=$BC_OUTPUT/report.md" >> "$GITHUB_OUTPUT"
+        echo "junit-path=$BC_OUTPUT/junit.xml" >> "$GITHUB_OUTPUT"
+        echo "sarif-path=$BC_OUTPUT/sarif.json" >> "$GITHUB_OUTPUT"
+        exit 0
+    - name: Upload SARIF to GitHub code scanning
+      if: inputs.upload-sarif == 'true' && hashFiles(format('{0}/sarif.json', inputs.output-directory)) != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.output-directory }}/sarif.json
+    - name: Enforce BreakCurl exit code
+      if: always()
+      shell: bash
+      run: |
+        code="${{ steps.run.outputs.exitcode }}"
+        if [ "$code" = "1" ]; then
+          echo "BreakCurl found at least one FAIL."
+        elif [ "$code" = "2" ]; then
+          echo "BreakCurl hit an ERROR, invalid input, or a failed baseline."
+        fi
+        exit "$code"

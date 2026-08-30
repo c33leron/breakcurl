@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/c33leron/BreakCurl/main/breakcurl.config.schema.json",
+  "title": "BreakCurl config",
+  "description": "Reusable configuration for BreakCurl negative and security API checks. Reference it from your breakcurl.config.json with \"$schema\" for editor autocompletion.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this JSON Schema for editor autocompletion."
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["quick", "negative", "security", "full"],
+      "description": "Check profile to run."
+    },
+    "maxCases": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Maximum number of checks for one run (hard limit: 200)."
+    },
+    "onlyPaths": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/jsonPath" },
+      "description": "Check only these JSON paths and their children."
+    },
+    "excludePaths": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/jsonPath" },
+      "description": "Never mutate these JSON paths or their children."
+    },
+    "expectAuth": {
+      "type": "boolean",
+      "description": "Require auth probes to return 401/403 (profile security or full)."
+    },
+    "customCases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path", "operation"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable check name shown in reports."
+          },
+          "path": { "$ref": "#/definitions/jsonPath" },
+          "operation": {
+            "type": "string",
+            "enum": ["set", "remove"]
+          },
+          "value": {
+            "description": "JSON value to set (required for operation=set).",
+            "$comment": "Any JSON value is allowed."
+          },
+          "expect": {
+            "type": "string",
+            "enum": ["reject", "accept", "auth-reject", "observe"],
+            "description": "Oracle applied to the API response."
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "operation": { "const": "set" } } },
+            "then": { "required": ["value"] }
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "jsonPath": {
+      "type": "string",
+      "pattern": "^\\$",
+      "description": "JSON path starting with $, e.g. $.email or $.profile.status."
+    }
+  }
+}
