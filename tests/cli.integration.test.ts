@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { VERSION } from "../src/version.js";
 
 const CANARY = "CANARY_SUPER_SECRET_123";
 const CLI = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
@@ -155,11 +156,16 @@ describe("installed-style CLI flow", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("profile     QUICK");
-    expect(result.stdout).not.toContain("v0.1.0");
     expect(result.stdout).toContain(
       "PASS 1   INFO 0   WARN 0   FAIL 0   ERROR 0",
     );
     expect((requests.get("/ok") ?? 0) - before).toBe(2);
+  });
+
+  it("reports the current package version", async () => {
+    const result = await runCli(["--version"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(VERSION);
   });
 
   it("stops after a failed baseline and sends no mutations", async () => {
