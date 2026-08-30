@@ -27,22 +27,15 @@ No OpenAPI specification, test code, account, cloud service, or global installat
 npx breakcurl demo
 ```
 
-BreakCurl starts a disposable local API, attacks it with the full check profile, and shows real findings — no target system needed, zero risk. You get a genuine report with a crash (`FAIL`), a weak-validation signal (`WARN`), and correctly rejected checks (`PASS`).
+BreakCurl starts a disposable local API, attacks it with the full check profile, and shows real findings — no target system needed, zero risk.
 
 ## How it works
 
 1. **Paste** one working `POST`, `PUT`, `PATCH`, or `DELETE` request from `DevTools → Network → Copy as cURL (bash)`.
-2. **Confirm** the plan: BreakCurl shows the sanitized target, the exact request budget, and every check it will send. `--dry-run` shows the plan and sends nothing.
-3. **Read the report**: sequential checks with a strict oracle, sanitized replay cURLs for every finding, and a machine-readable `report.json` (plus JUnit and SARIF for CI).
+2. **Confirm** the plan: sanitized target, exact request budget, every check it will send. `--dry-run` sends nothing.
+3. **Read the report**: sequential checks with a strict oracle, sanitized replay cURLs for every finding, plus `report.json`, JUnit, and SARIF for CI.
 
-BreakCurl detects:
-
-- `5xx` crashes and invalid JSON contracts on mutated input
-- required fields, types, enums, and boundaries that are silently not validated
-- endpoints that answer `2xx` without valid credentials (`CWE-306`)
-- stack traces, internal paths, database and ORM errors in responses (`CWE-209`)
-- credentials, JWTs, and private keys reflected in responses (`CWE-200`)
-- unescaped markup reflection in HTML responses (`CWE-79`)
+BreakCurl detects `5xx` crashes, invalid JSON contracts, unvalidated fields and boundaries, endpoints answering `2xx` without credentials (CWE-306), stack traces and database errors in responses (CWE-209), reflected secrets (CWE-200), and unescaped markup reflection (CWE-79).
 
 ## Quick start
 
@@ -52,19 +45,10 @@ Requires [Node.js 20+](https://nodejs.org/).
 npx breakcurl
 ```
 
-1. Open `DevTools → Network` in your browser.
-2. Select a working `POST`, `PUT`, `PATCH`, or `DELETE` request.
-3. Choose `Copy → Copy as cURL (bash)`.
-4. Paste the complete cURL into the terminal and press `Enter` on an empty line.
-5. Review the target and request budget, then confirm with `y`.
-
-`npx` downloads and runs BreakCurl for you. Nothing is installed globally.
-
-Preview the complete plan without sending a single HTTP request:
-
-```bash
-npx breakcurl --dry-run
-```
+1. Open `DevTools → Network`, select a working request.
+2. Choose `Copy → Copy as cURL (bash)`.
+3. Paste into the terminal, press `Enter` on an empty line.
+4. Review the target and request budget, confirm with `y`.
 
 Use only an authorized DEV/local environment and disposable data.
 
@@ -73,35 +57,17 @@ Use only an authorized DEV/local environment and disposable data.
 Output of `npx breakcurl demo` (abridged):
 
 ```text
-BREAKCURL  LOCAL DEMO
-
 BASELINE
   201     15ms  POST http://127.0.0.1:62143/api/users?token=<REDACTED>
 
 CHECKS
   [01/24] PASS   AUTH         401      2ms  all credentials removed
-  [02/24] PASS   AUTH         401      1ms  credentials replaced with invalid values
-  [03/24] PASS   STRUCTURE    422      1ms  field $.email removed
   [06/24] FAIL   STRUCTURE    500      1ms  $.age = null
   [08/24] WARN   STRUCTURE    200      2ms  $.age = "not-a-number"
-  [09/24] INFO   BOUNDARY     422      1ms  $.email = ""
   ...
 
 RUN SUMMARY
-  executed    24
   results     PASS 7   INFO 15   WARN 1   FAIL 1   ERROR 0
-```
-
-And the matching Markdown report, findings section:
-
-```markdown
-## Findings
-
-- **FAIL** $.age = null: The API returned HTTP 500. (risk HIGH, confidence HIGH)
-  — [sanitized replay cURL](findings/fail-age-null.curl)
-- **WARN** $.age = "not-a-number": The API accepted a value that was expected
-  to be rejected with HTTP 200. (risk MEDIUM, confidence MEDIUM)
-  — [sanitized replay cURL](findings/warn-age-wrong-type.curl)
 ```
 
 Every `FAIL/WARN` finding ships with a sanitized replay cURL you can run, share, or attach to a bug report.
@@ -110,44 +76,33 @@ Every `FAIL/WARN` finding ships with a sanitized replay cURL you can run, share,
 
 | Profile | Default checks | Coverage |
 | --- | ---: | --- |
-| `quick` | 15 | Remove, `null`, wrong type, empty value, and numeric boundary |
-| `negative` | 60 | Quick + whitespace, long strings, Unicode, and extended boundaries |
-| `security` | 80 | Auth boundary, constrained injection probes, and protocol checks |
+| `quick` | 15 | Remove, `null`, wrong type, empty value, numeric boundary |
+| `negative` | 60 | Quick + whitespace, long strings, Unicode, extended boundaries |
+| `security` | 80 | Auth boundary, constrained injection probes, protocol checks |
 | `full` | 120 | Negative + Security |
 
 ```bash
 npx breakcurl --profile negative
-npx breakcurl --security
 npx breakcurl --security --expect-auth
-npx breakcurl --profile full --max-cases 100
 ```
 
-`--expect-auth` makes the authentication oracle strict:
-
-- `401/403` → `PASS`
-- `2xx` → `FAIL`
-- another `4xx` → `WARN`
-
-Without `--expect-auth`, a successful auth probe remains `WARN`: the endpoint may be intentionally public.
+`--expect-auth` makes the authentication oracle strict: `401/403` → `PASS`, `2xx` → `FAIL`, another `4xx` → `WARN`. Without it, a successful auth probe stays `WARN` — the endpoint may be intentionally public.
 
 ## Safety
 
 - Use only an authorized DEV/local environment and disposable data.
-- `--dry-run` always sends `0` requests.
-- Without confirmation or `--allow-mutation`, no requests are sent.
+- `--dry-run` always sends `0` requests; without confirmation or `--allow-mutation`, no requests are sent.
+- Checks run sequentially with no retries; the first `HTTP 429` stops the run; one run is hard-limited to `200` checks.
 - Auth probes repeat the valid body without valid credentials and may cause a side effect if the endpoint is vulnerable.
-- Checks run sequentially with no retries. The first `HTTP 429` stops the run.
-- One run is hard-limited to `200` checks.
-- BreakCurl never executes the pasted cURL through a shell.
-- BreakCurl does not perform exploitation, SSRF, brute force, race/load testing, or data extraction.
+- BreakCurl never executes the pasted cURL through a shell and does not perform exploitation, SSRF, brute force, race/load testing, or data extraction.
 
-Read the complete [security policy](https://github.com/c33leron/BreakCurl/blob/main/SECURITY.md).
+Read the complete [security policy](SECURITY.md).
 
 ## Results
 
 - `PASS` — a specific expectation was confirmed.
 - `INFO` — an observation without a strict oracle.
-- `WARN` — suspicious behavior or a security signal without complete proof.
+- `WARN` — suspicious behavior without complete proof.
 - `FAIL` — a `5xx`, invalid JSON contract, or proven violation of an explicit oracle.
 - `ERROR` — the run or check could not be evaluated correctly.
 
@@ -168,24 +123,16 @@ breakcurl-output/
 ```
 
 ```bash
-npx breakcurl --junit           # writes breakcurl-output/junit.xml
-npx breakcurl --sarif           # writes breakcurl-output/sarif.json
-npx breakcurl --junit --sarif   # both, for CI runs
+npx breakcurl --junit --sarif
 ```
 
-Credentials, cookies, API keys, auth query parameters, JWTs, and secret-like JSON fields are replaced with `<REDACTED>`. API response bodies are not written to disk. Replay cURLs may still contain non-secret values from the original JSON, so use synthetic data and review artifacts before sharing them.
+Credentials, cookies, API keys, auth query parameters, JWTs, and secret-like JSON fields are replaced with `<REDACTED>` before anything is written to disk. API response bodies are never saved. Replay cURLs may still contain non-secret values, so use synthetic data and review artifacts before sharing them.
 
 ## CI and GitHub code scanning
 
-Exit codes gate your pipeline:
+Exit codes: `0` no FAIL or ERROR · `1` at least one FAIL · `2` ERROR, invalid input, or failed baseline.
 
-```text
-0  no FAIL or ERROR
-1  at least one FAIL
-2  ERROR, invalid input, or failed baseline
-```
-
-The official [GitHub Action](action/) runs BreakCurl from a committed cURL file, publishes `FAIL`/`WARN` findings to the repository Security tab via SARIF, and fails the job on `FAIL`:
+The official [GitHub Action](action/) runs BreakCurl from a committed cURL file, publishes findings to the repository Security tab via SARIF, and fails the job on `FAIL`:
 
 ```yaml
 name: API checks
@@ -210,23 +157,14 @@ jobs:
           expect-auth: "true"
 ```
 
-Do not commit real credentials: BreakCurl rejects shell variables in cURL, so assemble the file from a low-privilege test token at runtime (see the [action README](action/README.md)).
+Do not commit real credentials — see the [action README](action/README.md) for assembling the cURL from secrets at runtime.
 
-## Files and pipes
+## Files and custom checks
 
 ```bash
 npx breakcurl request.curl
 cat request.curl | npx breakcurl --profile quick --allow-mutation
-```
-
-## Target fields and custom checks
-
-```bash
-npx breakcurl \
-  --only '$.email' \
-  --exclude '$.profile.internalNote' \
-  --set '$.age=-1' \
-  --remove '$.profile.middleName'
+npx breakcurl --only '$.email' --exclude '$.profile.internalNote' --set '$.age=-1' --remove '$.profile.middleName'
 ```
 
 Use a [JSON config](breakcurl.config.example.json) for repeatable checks:
@@ -235,12 +173,10 @@ Use a [JSON config](breakcurl.config.example.json) for repeatable checks:
 npx breakcurl --config breakcurl.config.json
 ```
 
-Reference the [JSON Schema](breakcurl.config.schema.json) from your config for editor autocompletion:
+Reference the [JSON Schema](breakcurl.config.schema.json) in your config for editor autocompletion:
 
 ```json
-{
-  "$schema": "https://raw.githubusercontent.com/c33leron/BreakCurl/main/breakcurl.config.schema.json"
-}
+{ "$schema": "https://raw.githubusercontent.com/c33leron/BreakCurl/main/breakcurl.config.schema.json" }
 ```
 
 Complete CLI reference:
@@ -251,15 +187,7 @@ npx breakcurl --help
 
 ## Language
 
-English is the default. Run the complete CLI, prompts, errors, and Markdown report in Russian with:
-
-```bash
-npx breakcurl --lang ru
-# or for every run in the current shell:
-export BREAKCURL_LANG=ru
-```
-
-`report.json`, `junit.xml`, and `sarif.json` always keep stable English machine-readable fields, regardless of the selected interface language.
+English is the default; run everything in Russian with `npx breakcurl --lang ru` or `export BREAKCURL_LANG=ru`. `report.json`, `junit.xml`, and `sarif.json` always keep stable English machine-readable fields.
 
 ## Why BreakCurl
 
@@ -269,9 +197,8 @@ API negative testing usually asks you to bring your own spec, templates, or word
 | --- | --- | --- | --- | --- | --- |
 | Input | one pasted cURL | OpenAPI spec | templates | wordlists | proxy + manual config |
 | Setup effort | seconds | needs a spec | needs templates | needs wordlists | needs proxy setup |
-| Built-in oracles (auth, contract, validation) | yes | spec-based | matchers | no | manual review |
-| Safe defaults: sequential, budget cap, 429 stop, confirmation | yes | partial | no | no | manual |
-| Works without a spec or proxy | yes | no | yes | yes | no |
+| Built-in oracles | yes | spec-based | matchers | no | manual review |
+| Safe sequential defaults, budget cap, 429 stop | yes | partial | no | no | manual |
 | Install | `npx` | `pip` | binary | binary | licensed app |
 
 BreakCurl complements API testing; it does not replace a pentest, DAST scanner, or complete QA strategy.
@@ -279,28 +206,23 @@ BreakCurl complements API testing; it does not replace a pentest, DAST scanner, 
 ## FAQ
 
 **Is it safe to run against our shared DEV environment?**
-BreakCurl sends one baseline request plus up to `--max-cases` sequential mutations, stops on the first `HTTP 429`, and never runs anything in parallel. Still: use disposable data, review the plan before confirming, and prefer `--dry-run` first. If an endpoint is vulnerable, an auth probe can execute the operation — see [Safety](#safety).
+One baseline request plus up to `--max-cases` sequential mutations, stop on the first `HTTP 429`, nothing in parallel. Still: disposable data, review the plan before confirming, prefer `--dry-run` first.
 
 **Do I need an OpenAPI spec?**
 No. The working cURL is the spec — it contains the URL, headers, credentials, and a valid body to mutate.
 
 **Does it support GET requests?**
-Not yet. BreakCurl currently mutates JSON bodies of `POST/PUT/PATCH/DELETE` requests. A read-only profile with an IDOR oracle is on the roadmap.
+Not yet; a read-only profile with an IDOR oracle is on the roadmap.
 
 **Where do my secrets go?**
-Nowhere. BreakCurl runs locally with zero telemetry and no cloud. Secrets are redacted before anything is written to disk, and API response bodies are never saved.
-
-**What happens when it finds something?**
-You get a `FAIL` or `WARN` entry in the report, a sanitized replay cURL to reproduce it, and — with `--sarif` — an alert in the GitHub Security tab. Attach the replay to your bug report; the evidence is already packaged.
+Nowhere. Local-only, zero telemetry, secrets redacted before writing, response bodies never saved.
 
 **Can it replace a pentest?**
-No, and it does not try. BreakCurl is the fast, safe first pass every QA engineer can run before involving security specialists.
+No — it is the fast, safe first pass every QA engineer can run before involving security specialists.
 
 ## Boundaries
 
-BreakCurl supports one `POST`, `PUT`, `PATCH`, or `DELETE` request, one HTTP/HTTPS URL, and a root JSON object.
-
-Multipart bodies, file bodies, redirects, shell variables, pipes, substitutions, and client certificates are intentionally unsupported.
+BreakCurl supports one `POST`, `PUT`, `PATCH`, or `DELETE` request, one HTTP/HTTPS URL, and a root JSON object. Multipart bodies, file bodies, redirects, shell variables, pipes, substitutions, and client certificates are intentionally unsupported.
 
 ## Roadmap
 
@@ -316,7 +238,3 @@ cd BreakCurl
 npm ci
 npm run verify
 ```
-
-## License
-
-[MIT](LICENSE) — © Bogdan Bobylev
