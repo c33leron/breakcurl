@@ -1,0 +1,26 @@
+{
+  "$schema": "./breakcurl.idor.schema.json",
+  "authModel": "bearer-only",
+  "objectIdsGrantAccess": false,
+  "rule": "a-cannot-read-b",
+  "privateCanaries": true,
+  "identity": {
+    "url": "http://127.0.0.1:3000/me",
+    "principalPointer": "/id",
+    "actorA": "actor-a",
+    "actorB": "actor-b"
+  },
+  "objects": {
+    "pathTemplate": "/objects/{objectId}",
+    "idPointer": "/id",
+    "canaryPointer": "/privateMarker",
+    "objectA": {
+      "id": "object-a",
+      "canary": "wQ8r4yM2Z6n9vK7p"
+    },
+    "objectB": {
+      "id": "object-b",
+      "canary": "hT3s9cL5J2x8bV6d"
+    }
+  }
+}

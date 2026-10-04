@@ -19,23 +19,27 @@ inputs:
     required: false
     default: ""
   expect-auth:
-    description: "Require auth probes to return 401/403 (profile security or full)."
+    description: "Require strict auth rejection. In 0.3.0+, requires a complete auth-contract; quick includes auth observations without this flag."
     required: false
     default: "false"
+  auth-contract:
+    description: "Optional path to a complete auth contract JSON file. Requires breakcurl 0.3.0+."
+    required: false
+    default: ""
   timeout:
     description: "Per-request timeout in milliseconds."
     required: false
     default: "10000"
   lang:
-    description: "Interface language for report.md: en or ru. report.json stays English."
+    description: "Human-readable report language: en or ru. report.json stays English."
     required: false
     default: "en"
   output-directory:
-    description: "Directory for report.md, report.json, junit.xml, and sarif.json."
+    description: "Directory for report.md, report.json, junit.xml, and sarif.json; 0.3.0+ also writes report.html."
     required: false
     default: "breakcurl-output"
   breakcurl-version:
-    description: "breakcurl npm package version to run. JUnit and SARIF require 0.2.0+."
+    description: "breakcurl npm package version to run. JUnit and SARIF require 0.2.0+; HTML and auth contracts require 0.3.0+."
     required: false
     default: "latest"
   upload-sarif:
@@ -64,17 +68,22 @@ runs:
         BC_PROFILE: ${{ inputs.profile }}
         BC_MAX_CASES: ${{ inputs.max-cases }}
         BC_EXPECT_AUTH: ${{ inputs.expect-auth }}
+        BC_AUTH_CONTRACT: ${{ inputs.auth-contract }}
         BC_TIMEOUT: ${{ inputs.timeout }}
+        BC_LANG: ${{ inputs.lang }}
         BC_OUTPUT: ${{ inputs.output-directory }}
         BC_VERSION: ${{ inputs.breakcurl-version }}
       run: |
         set +e
-        args=("$BC_CURL_FILE" --profile "$BC_PROFILE" --timeout "$BC_TIMEOUT" --allow-mutation --no-color --output "$BC_OUTPUT" --junit --sarif)
+        args=("$BC_CURL_FILE" --profile "$BC_PROFILE" --timeout "$BC_TIMEOUT" --lang "$BC_LANG" --allow-mutation --no-color --output "$BC_OUTPUT" --junit --sarif)
         if [ -n "$BC_MAX_CASES" ]; then
           args+=(--max-cases "$BC_MAX_CASES")
         fi
         if [ "$BC_EXPECT_AUTH" = "true" ]; then
           args+=(--expect-auth)
+        fi
+        if [ -n "$BC_AUTH_CONTRACT" ]; then
+          args+=(--auth-contract "$BC_AUTH_CONTRACT")
         fi
         npx -y breakcurl@"$BC_VERSION" "${args[@]}"
         code=$?

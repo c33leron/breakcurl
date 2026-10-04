@@ -25,6 +25,12 @@ export function collectSensitiveValues(request: ParsedCurl): string[] {
     const url = new URL(request.url);
     addSecret(values, url.username);
     addSecret(values, url.password);
+    if (url.hash) {
+      addSecret(values, url.hash.slice(1));
+      for (const value of new URLSearchParams(url.hash.slice(1)).values()) {
+        addSecret(values, value);
+      }
+    }
     for (const [name, value] of url.searchParams) {
       if (isSensitiveName(name)) addSecret(values, value);
       collectPatternSecrets(value, values);
@@ -55,6 +61,7 @@ export function redactUrl(url: string, knownSecrets: string[] = []): string {
     const parsed = new URL(url);
     if (parsed.username) parsed.username = REDACTED;
     if (parsed.password) parsed.password = REDACTED;
+    if (parsed.hash) parsed.hash = REDACTED;
     for (const name of [...parsed.searchParams.keys()]) {
       const value = parsed.searchParams.get(name) ?? "";
       if (isSensitiveName(name) || containsSecretPattern(value)) {
@@ -181,7 +188,7 @@ function addSecret(values: Set<string>, value: string | undefined): void {
 }
 
 function uniqueSecrets(values: string[]): string[] {
-  return [...new Set(values.filter((value) => value.length >= 4))].sort(
+  return [...new Set(values.filter((value) => value.length > 0))].sort(
     (left, right) => right.length - left.length,
   );
 }

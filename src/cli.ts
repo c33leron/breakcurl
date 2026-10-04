@@ -4,10 +4,18 @@ import { join } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError } from "commander";
-import { classifyCase } from "./classify.js";
+import {
+  collectAuthContractSecrets,
+  parseAuthContract,
+} from "./auth-contract.js";
 import { loadConfig } from "./config.js";
 import { parseCurl } from "./curl.js";
 import { runDemo } from "./demo.js";
+import {
+  executeChecks,
+  exitCodeForRun,
+  hasWorkingBaseline,
+} from "./execute.js";
 import {
   detectInitialLanguage,
   isLanguage,
@@ -15,14 +23,14 @@ import {
   message,
   renderText,
 } from "./i18n.js";
+import { executeIdorPlan, parseIdorConfig, prepareIdorPlan } from "./idor.js";
 import {
   generateChecks,
   parseInlineCustomCase,
   requestForCase,
 } from "./mutations.js";
-import { redactUrl } from "./redact.js";
+import { collectSensitiveValues, redactText, redactUrl } from "./redact.js";
 import { writeReport } from "./report.js";
-import { sendRequest } from "./runner.js";
 import {
   printBanner,
   printBaseline,
@@ -30,10 +38,11 @@ import {
   printKeyValue,
   printNotice,
   printResultSummary,
+  printRunOutcome,
   printSection,
+  safeTerminalText,
 } from "./terminal.js";
 import type {
-  CaseResult,
   CheckCategory,
   CheckProfile,
   CustomCaseDefinition,
@@ -54,6 +63,8 @@ interface CliOptions {
   color: boolean;
   security?: boolean;
   expectAuth?: boolean;
+  authBodyPath: string[];
+  authContract?: string;
   dryRun?: boolean;
   config?: string;
   junit?: string | true;
@@ -71,6 +82,7 @@ const PROFILE_DEFAULT_CASES: Record<CheckProfile, number> = {
   full: 120,
 };
 const MAX_CASES = 200;
+let outputSecrets: string[] = [];
 const initialLanguage = detectInitialLanguage(
   process.argv.slice(2),
   process.env.BREAKCURL_LANG,
@@ -117,8 +129,8 @@ const program = new Command()
   })
   .description(
     m(
-      "Mutates one JSON field at a time and shows where your API breaks.",
-      "Изменяет по одному полю JSON и показывает, где ломается ваш API.",
+      "Run controlled API and authentication checks from cURL, then open an HTML report.",
+      "Проверяет API и авторизацию по cURL и создает понятный HTML-отчет.",
     ),
   )
   .argument(
@@ -170,8 +182,24 @@ const program = new Command()
   .option(
     "--expect-auth",
     m(
-      "require auth probes to return 401/403",
-      "считать 401/403 обязательным результатом auth-probes",
+      "expect 401/403; strict failures require a complete --auth-contract",
+      "ожидать 401/403; строгий вывод требует полного --auth-contract",
+    ),
+  )
+  .option(
+    "--auth-body-path <path>",
+    m(
+      "declare a JSON credential path to remove/invalidate with header credentials (repeatable)",
+      "указать JSON-путь credentials для удаления/замены вместе с заголовками (можно повторять)",
+    ),
+    collectValue,
+    [],
+  )
+  .option(
+    "--auth-contract <file>",
+    m(
+      "complete header/query/JSON credential declaration for strict auth checks",
+      "полное описание credentials в header/query/JSON для строгой проверки авторизации",
     ),
   )
   .option(
@@ -268,13 +296,24 @@ const program = new Command()
       ? await readFile(file, "utf8")
       : await readCurlInput(language);
     const request = parseCurl(curlInput, language);
+    outputSecrets = collectSensitiveValues(request);
     const expectAuth = options.expectAuth ?? config.expectAuth ?? false;
-    if (expectAuth && profile !== "security" && profile !== "full") {
+    const authContract = options.authContract
+      ? parseAuthContract(
+          await readJsonFile(options.authContract, language),
+          language,
+        )
+      : config.authContract;
+    if (authContract)
+      outputSecrets.push(
+        ...collectAuthContractSecrets(request, authContract, language),
+      );
+    if (expectAuth && profile === "negative") {
       throw new Error(
         message(
           language,
-          "--expect-auth requires the security or full profile.",
-          "--expect-auth требует профиль security или full.",
+          "--expect-auth requires the quick, security, or full profile.",
+          "--expect-auth требует профиль quick, security или full.",
         ),
       );
     }
@@ -291,10 +330,20 @@ const program = new Command()
       excludePaths: [...(config.excludePaths ?? []), ...options.exclude],
       customCases,
       expectAuth,
+      authBodyPaths: [...(config.authBodyPaths ?? []), ...options.authBodyPath],
+      ...(authContract ? { authContract } : {}),
       language,
     });
     const mutations = generatedChecks.cases;
-    if (mutations.length === 0) {
+    outputSecrets = [
+      ...new Set([
+        ...outputSecrets,
+        ...mutations.flatMap((mutation) =>
+          collectSensitiveValues(requestForCase(request, mutation)),
+        ),
+      ]),
+    ];
+    if (mutations.length === 0 && request.method !== "GET") {
       throw new Error(
         message(
           language,
@@ -341,81 +390,39 @@ const program = new Command()
       message(language, "BASELINE", "ИСХОДНЫЙ ЗАПРОС"),
       options.color,
     );
-    const baselineResponse = await sendRequest(request, timeoutMs);
-    printBaseline(
-      request.method,
-      redactUrl(request.url),
-      baselineResponse.status,
-      baselineResponse.latencyMs,
-      options.color,
-    );
-    if (baselineResponse.timedOut || baselineResponse.connectionError) {
-      throw new Error(
-        message(
-          language,
-          "The baseline request did not complete. BreakCurl needs one working request. No mutations were sent.",
-          "Исходный запрос не завершился. BreakCurl нужен один рабочий запрос. Мутации не отправлялись.",
-        ),
-      );
-    }
-    if (baselineResponse.status < 200 || baselineResponse.status >= 300) {
-      throw new Error(
-        message(
-          language,
-          `The baseline request returned ${baselineResponse.status}. BreakCurl needs one working request. No mutations were sent.`,
-          `Исходный запрос вернул ${baselineResponse.status}. BreakCurl нужен один рабочий запрос. Мутации не отправлялись.`,
-        ),
-      );
-    }
-
-    const cases: CaseResult[] = [];
-    const runNotes = [...generatedChecks.notes];
-    printSection(message(language, "CHECKS", "ПРОВЕРКИ"), options.color);
-    for (const [index, mutation] of mutations.entries()) {
-      const response = await sendRequest(
-        requestForCase(request, mutation),
-        timeoutMs,
-      );
-      const outcome = classifyCase(mutation, response, {
-        baseline: baselineResponse,
-        expectAuth,
-      });
-      const caseResult = { mutation, response, ...outcome };
-      cases.push(caseResult);
-      printCaseLine(
-        caseResult,
-        index,
-        mutations.length,
-        options.color,
-        language,
-      );
-
-      if (response.status === 429) {
-        const skipped = mutations.length - cases.length;
-        const retryAfter = response.headers["retry-after"];
-        const note = localized(
-          `Safety stop: received HTTP 429${retryAfter ? ` (Retry-After: ${retryAfter})` : ""}; skipped checks: ${skipped}.`,
-          `Safety stop: получен HTTP 429${retryAfter ? ` (Retry-After: ${retryAfter})` : ""}; пропущено проверок: ${skipped}.`,
-        );
-        runNotes.push(note);
-        console.log();
-        printNotice(
-          message(language, "SAFETY STOP", "ЗАЩИТНАЯ ОСТАНОВКА"),
-          renderText(note, language),
+    const result = await executeChecks(request, mutations, {
+      timeoutMs,
+      profile,
+      language,
+      notes: generatedChecks.notes,
+      onBaseline: ({ response }) => {
+        printBaseline(
+          request.method,
+          redactUrl(request.url, outputSecrets),
+          response.status,
+          response.latencyMs,
           options.color,
         );
-        break;
-      }
-    }
-
-    const result: RunResult = {
-      baseline: { request, response: baselineResponse },
-      cases,
-      profile,
-      notes: runNotes,
-      language,
-    };
+        printSection(message(language, "CHECKS", "ПРОВЕРКИ"), options.color);
+      },
+      onCase: (item, index) =>
+        printCaseLine(
+          item,
+          index,
+          mutations.length,
+          options.color,
+          language,
+          outputSecrets,
+        ),
+      onStop: (note) =>
+        printNotice(
+          message(language, "SAFETY STOP", "ЗАЩИТНАЯ ОСТАНОВКА"),
+          redactText(renderText(note, language), outputSecrets),
+          options.color,
+        ),
+    });
     const generated = await writeReport(result, options.output, {
+      knownSecrets: outputSecrets,
       junitPath: resolveReportOption(
         options.junit,
         "junit.xml",
@@ -436,12 +443,133 @@ const program = new Command()
       generated.sarifPath,
       options.color,
       language,
+      generated.htmlReportPath,
     );
-    process.exitCode = cases.some((item) => item.classification === "ERROR")
-      ? 2
-      : cases.some((item) => item.classification === "FAIL")
-        ? 1
-        : 0;
+    process.exitCode = exitCodeForRun(result);
+    if (!hasWorkingBaseline(result)) {
+      const note = result.notes?.at(-1);
+      if (note)
+        console.error(
+          safeTerminalText(
+            redactText(renderText(note, language), outputSecrets),
+          ),
+        );
+    }
+  });
+
+program
+  .command("idor <a> <b>")
+  .description(
+    m(
+      "verify read access isolation between two controlled bearer identities",
+      "проверить изоляцию чтения между двумя тестовыми пользователями с bearer-токенами",
+    ),
+  )
+  .action(async (a: string, b: string) => {
+    const options = program.opts<CliOptions>();
+    const language = options.lang;
+    rejectUnrelatedOptions(options, "idor");
+    if (!options.config)
+      throw new Error(
+        m(
+          "IDOR requires --config breakcurl.idor.json; start from breakcurl.idor.example.json.",
+          "Для IDOR нужен --config breakcurl.idor.json; образец: breakcurl.idor.example.json.",
+        ),
+      );
+    const timeoutMs = positiveInteger(options.timeout, "--timeout", language);
+    const config = parseIdorConfig(
+      await readJsonFile(options.config, language),
+      language,
+    );
+    const requestA = parseCurl(await readFile(a, "utf8"), language);
+    const requestB = parseCurl(await readFile(b, "utf8"), language);
+    outputSecrets = [
+      ...collectSensitiveValues(requestA),
+      ...collectSensitiveValues(requestB),
+    ];
+    const plan = prepareIdorPlan(requestA, requestB, config, language);
+    outputSecrets.push(...plan.knownSecrets);
+    printBanner(
+      message(
+        language,
+        "CONTROLLED IDOR CHECK",
+        "КОНТРОЛИРУЕМАЯ IDOR-ПРОВЕРКА",
+      ),
+      options.color,
+    );
+    printKeyValue(
+      message(language, "target", "цель"),
+      redactUrl(plan.origin, outputSecrets),
+      options.color,
+    );
+    printKeyValue(
+      message(language, "planned", "план"),
+      message(language, "at most 5 GET requests", "не более 5 GET-запросов"),
+      options.color,
+    );
+    if (options.dryRun)
+      printKeyValue(
+        message(language, "sent", "отправлено"),
+        message(language, "0 requests (dry-run)", "0 запросов (только план)"),
+        options.color,
+      );
+    for (const item of plan.requests)
+      console.log(
+        `  ${safeTerminalText(redactText(renderText(item.description, language), outputSecrets))}`,
+      );
+    if (options.dryRun) {
+      console.log(
+        message(
+          language,
+          "DRY RUN: no HTTP requests were sent.",
+          "ПЛАН: HTTP-запросы не отправлены.",
+        ),
+      );
+      return;
+    }
+    if (
+      !options.allowMutation &&
+      !(await confirmRequests(4, false, language, true))
+    ) {
+      throw new Error(
+        message(
+          language,
+          "Requests were not authorized. Nothing was sent.",
+          "Запросы не были разрешены. Ничего не отправлено.",
+        ),
+      );
+    }
+    const result = await executeIdorPlan(plan, {
+      timeoutMs,
+      language,
+      onResult: (item, index) =>
+        printCaseLine(item, index, 5, options.color, language, outputSecrets),
+    });
+    const files = await writeReport(result, options.output, {
+      knownSecrets: outputSecrets,
+      junitPath: resolveReportOption(
+        options.junit,
+        "junit.xml",
+        options.output,
+      ),
+      sarifPath: resolveReportOption(
+        options.sarif,
+        "sarif.json",
+        options.output,
+      ),
+    });
+    printResults(
+      result,
+      files.reportPath,
+      files.jsonReportPath,
+      files.findingPaths,
+      files.junitPath,
+      files.sarifPath,
+      options.color,
+      language,
+      files.htmlReportPath,
+    );
+    process.exitCode = exitCodeForRun(result);
   });
 
 program
@@ -450,7 +578,18 @@ program
   .action(async () => {
     const options = program.opts<CliOptions>();
     const language = options.lang;
+    rejectUnrelatedOptions(options, "demo");
     const timeoutMs = positiveInteger(options.timeout, "--timeout", language);
+    if (options.dryRun) {
+      console.log(
+        message(
+          language,
+          "Demo dry-run: 0 requests. No server was started. Run demo without --dry-run to use the disposable local fixtures.",
+          "План демо: 0 запросов. Сервер не запускался. Уберите --dry-run, чтобы проверить одноразовый локальный стенд.",
+        ),
+      );
+      return;
+    }
     const success = await runDemo({
       timeoutMs,
       outputDirectory: options.output,
@@ -473,10 +612,53 @@ program
 program.parseAsync().catch((error: unknown) => {
   const language = program.opts<CliOptions>().lang ?? initialLanguage;
   console.error(
-    `ERROR  ${error instanceof Error ? error.message : message(language, "BreakCurl exited with an error.", "BreakCurl завершился с ошибкой.")}`,
+    `ERROR  ${safeTerminalText(redactText(error instanceof Error ? error.message : message(language, "BreakCurl exited with an error.", "BreakCurl завершился с ошибкой."), outputSecrets))}`,
   );
   process.exitCode = 2;
 });
+
+function rejectUnrelatedOptions(
+  options: CliOptions,
+  command: "idor" | "demo",
+): void {
+  const unsupported =
+    options.profile ||
+    options.security ||
+    options.maxCases ||
+    options.expectAuth ||
+    options.authContract ||
+    options.authBodyPath.length ||
+    options.only.length ||
+    options.exclude.length ||
+    options.set.length ||
+    options.remove.length ||
+    (command === "demo" && options.config);
+  if (unsupported)
+    throw new Error(
+      message(
+        options.lang,
+        `${command} has a fixed request plan; body/profile/auth/max-cases options do not apply. Use --dry-run to review its budget.`,
+        `${command} использует фиксированный план; опции body/profile/auth/max-cases к нему не относятся. Проверьте бюджет через --dry-run.`,
+      ),
+    );
+}
+
+async function readJsonFile(
+  path: string,
+  language: Language,
+): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    throw new Error(
+      message(
+        language,
+        `Cannot read valid JSON from ${path}.`,
+        `Не удалось прочитать валидный JSON из ${path}.`,
+      ),
+    );
+  }
+}
 
 function positiveInteger(
   value: string,
@@ -555,6 +737,7 @@ async function confirmRequests(
   caseCount: number,
   includesAuthProbes: boolean,
   language: Language,
+  idor = false,
 ): Promise<boolean> {
   if (
     !output.isTTY ||
@@ -592,8 +775,12 @@ async function confirmRequests(
     const answer = await prompt.question(
       message(
         language,
-        `BreakCurl will send 1 baseline request and ${caseCount} check requests.\nThis may modify data in the target system.${includesAuthProbes ? "\nAuth probes may execute the operation without authorization if the endpoint is vulnerable." : ""}\nContinue? (y/N) `,
-        `BreakCurl отправит 1 исходный запрос и ${caseCount} проверочных запросов.\nЭто может изменить данные в целевой системе.${includesAuthProbes ? "\nAuth-probes могут выполнить операцию без авторизации, если endpoint уязвим." : ""}\nПродолжить? (y/N) `,
+        idor
+          ? "BreakCurl will send up to 5 GET requests using two controlled identities. Confirm this is an authorized disposable fixture and the isolation contract is true. Continue? (y/N) "
+          : `BreakCurl will send 1 baseline request and ${caseCount} check requests.\nThis may modify data in the target system.${includesAuthProbes ? "\nAuth probes may execute the operation without authorization if the endpoint is vulnerable." : ""}\nContinue? (y/N) `,
+        idor
+          ? "BreakCurl отправит до 5 GET-запросов от двух тестовых пользователей. Подтвердите разрешенный одноразовый стенд и корректность контракта изоляции. Продолжить? (y/N) "
+          : `BreakCurl отправит 1 исходный запрос и ${caseCount} проверочных запросов.\nЭто может изменить данные в целевой системе.${includesAuthProbes ? "\nAuth-probes могут выполнить операцию без авторизации, если endpoint уязвим." : ""}\nПродолжить? (y/N) `,
       ),
     );
     return answer.trim().toLowerCase() === "y";
@@ -628,7 +815,7 @@ function printPreflight(
   printSection(message(language, "RUN PLAN", "ПЛАН ЗАПУСКА"), colorEnabled);
   printKeyValue(
     message(language, "target", "цель"),
-    `${method} ${redactUrl(url)}`,
+    `${method} ${redactUrl(url, outputSecrets)}`,
     colorEnabled,
   );
   printKeyValue(
@@ -637,16 +824,20 @@ function printPreflight(
     colorEnabled,
   );
   printKeyValue(
-    message(language, "budget", "запросы"),
-    dryRun
-      ? message(language, "0 requests", "0 запросов")
-      : message(
-          language,
-          `1 baseline + ${cases.length} checks`,
-          `1 исходный + ${cases.length} проверок`,
-        ),
+    message(language, "planned", "план"),
+    message(
+      language,
+      `1 baseline + ${cases.length} checks = ${cases.length + 1} requests`,
+      `исходный: 1; проверки: ${cases.length}; всего запросов: ${cases.length + 1}`,
+    ),
     colorEnabled,
   );
+  if (dryRun)
+    printKeyValue(
+      message(language, "sent", "отправлено"),
+      message(language, "0 requests (dry-run)", "0 запросов (только план)"),
+      colorEnabled,
+    );
   printKeyValue(
     message(language, "coverage", "покрытие"),
     Object.entries(categories)
@@ -673,7 +864,7 @@ function printPreflight(
   for (const note of notes) {
     printNotice(
       message(language, "NOTE", "ПРИМЕЧАНИЕ"),
-      renderText(note, language),
+      redactText(renderText(note, language), outputSecrets),
       colorEnabled,
     );
   }
@@ -688,10 +879,18 @@ function printResults(
   sarifPath: string | undefined,
   colorEnabled: boolean,
   language: Language,
+  htmlReportPath?: string,
 ): void {
   printSection(message(language, "RUN SUMMARY", "ИТОГ"), colorEnabled);
+  printRunOutcome(result, colorEnabled, language);
   printResultSummary(result.cases, colorEnabled);
   printSection(message(language, "ARTIFACTS", "АРТЕФАКТЫ"), colorEnabled);
+  if (htmlReportPath)
+    printKeyValue(
+      message(language, "browser", "браузер"),
+      htmlReportPath,
+      colorEnabled,
+    );
   printKeyValue(message(language, "report", "отчёт"), reportPath, colorEnabled);
   printKeyValue("json", jsonReportPath, colorEnabled);
   if (junitPath) printKeyValue("junit", junitPath, colorEnabled);
@@ -787,7 +986,7 @@ function printDryRunPlan(cases: MutationCase[], language: Language): void {
   );
   for (const [index, item] of cases.entries()) {
     console.log(
-      `  ${String(index + 1).padStart(3)}. [${item.category ?? "negative"}] ${renderText(item.description, language)} — expect ${item.expectation ?? "legacy"}`,
+      `  ${String(index + 1).padStart(3)}. [${item.category ?? "negative"}] ${safeTerminalText(redactText(renderText(item.description, language), outputSecrets))} — expect ${item.expectation ?? "legacy"}`,
     );
   }
 }

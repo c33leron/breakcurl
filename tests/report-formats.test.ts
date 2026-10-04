@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { classifyCase } from "../src/classify.js";
 import { localized } from "../src/i18n.js";
 import { formatJunitXml } from "../src/junit.js";
 import { formatSarif } from "../src/sarif.js";
@@ -141,6 +142,41 @@ function buildResult(): RunResult {
 }
 
 describe("formatJunitXml", () => {
+  it("preserves 5xx failure evidence and records incomplete work without blaming a working baseline", () => {
+    const result = buildResult();
+    const failedCase = result.cases[0];
+    if (!failedCase) throw new Error("Missing server failure");
+    failedCase.response.connectionError = "Connection failed.";
+    result.cases = [failedCase];
+    result.completedRequests = 2;
+    result.plannedRequests = 3;
+    const xml = formatJunitXml(result);
+    expect(xml).toContain('tests="2" failures="1" errors="1"');
+    expect(xml).toContain("Requests attempted / planned: 2 / 3");
+    expect(xml).not.toContain("Baseline HTTP 201");
+    const sarif = JSON.parse(formatSarif(result));
+    expect(sarif.runs[0].invocations[0].executionSuccessful).toBe(false);
+    expect(
+      sarif.runs[0].invocations[0].toolExecutionNotifications[0].message.text,
+    ).toContain("Requests attempted / planned: 2 / 3");
+    expect(
+      sarif.runs[0].invocations[0].toolExecutionNotifications[0].message.text,
+    ).not.toContain("Baseline HTTP");
+  });
+
+  it("reports a failed baseline as a run error instead of an empty clean suite", () => {
+    const result = buildResult();
+    result.cases = [];
+    result.baseline.response.status = 500;
+    result.completedRequests = 1;
+    result.plannedRequests = 16;
+    const xml = formatJunitXml(result);
+    expect(xml).toContain('tests="1" failures="0" errors="1"');
+    expect(xml).toContain('type="run-incomplete"');
+    expect(xml).toContain("Baseline HTTP 500");
+    expect(xml).toContain("not an additional HTTP request");
+  });
+
   it("maps FAIL to failure, ERROR to error, WARN to skipped, PASS to a clean testcase", () => {
     const result = buildResult();
     const xml = formatJunitXml(result, []);
@@ -198,6 +234,39 @@ describe("formatJunitXml", () => {
 });
 
 describe("formatSarif", () => {
+  it("marks baseline failure as an unsuccessful tool invocation even with no findings", () => {
+    const result = buildResult();
+    result.cases = [];
+    result.baseline.response.status = 500;
+    const sarif = JSON.parse(formatSarif(result));
+    expect(sarif.runs[0].results).toEqual([]);
+    expect(sarif.runs[0].invocations[0]).toMatchObject({
+      executionSuccessful: false,
+      toolExecutionNotifications: [{ level: "error" }],
+    });
+    expect(
+      sarif.runs[0].invocations[0].toolExecutionNotifications[0].message.text,
+    ).toContain("Baseline HTTP 500");
+  });
+
+  it("keeps a server failure distinct from a secondary technology header", () => {
+    const result = buildResult();
+    const item = result.cases[0];
+    if (!item) throw new Error("Missing server-error fixture");
+    item.response.headers = { "X-Powered-By": "fixture-server" };
+    Object.assign(item, classifyCase(item.mutation, item.response));
+    result.cases = [item];
+    expect(item.classification).toBe("FAIL");
+    expect(
+      item.securitySignals?.some((signal) => signal.id === "technology-header"),
+    ).toBe(true);
+    const sarif = formatSarif(result);
+    expect(sarif).toContain('"ruleId": "structure-finding"');
+    expect(sarif).not.toContain("technology-header");
+    expect(sarif).not.toContain("CWE-200");
+    expect(sarif).not.toContain("helpUri");
+  });
+
   it("produces SARIF 2.1.0 with only FAIL, WARN, and ERROR cases", () => {
     const sarif = JSON.parse(formatSarif(buildResult(), [])) as {
       version: string;

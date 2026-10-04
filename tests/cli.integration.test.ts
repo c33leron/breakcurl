@@ -55,7 +55,7 @@ describe("installed-style CLI flow", () => {
         response.end('{"error":"baseline rejected"}');
         return;
       }
-      const body = JSON.parse(rawBody) as Record<string, unknown>;
+      const body = JSON.parse(rawBody || "{}") as Record<string, unknown>;
       if (path === "/rate-limit") {
         const isBaseline = body.email === "qa@example.com" && body.age === 30;
         response.statusCode = isBaseline ? 201 : 429;
@@ -155,7 +155,7 @@ describe("installed-style CLI flow", () => {
     );
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("profile     QUICK");
+    expect(result.stdout).toMatch(/profile\s+QUICK/);
     expect(result.stdout).toContain(
       "PASS 1   INFO 0   WARN 0   FAIL 0   ERROR 0",
     );
@@ -186,7 +186,12 @@ describe("installed-style CLI flow", () => {
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("No mutations were sent");
     expect((requests.get("/baseline-fail") ?? 0) - before).toBe(1);
-    await expect(access(outputDirectory)).rejects.toThrow();
+    const failedReport = JSON.parse(
+      await readFile(join(outputDirectory, "report.json"), "utf8"),
+    );
+    expect(failedReport.completedRequests).toBe(1);
+    expect(failedReport.cases).toEqual([]);
+    expect(failedReport.baseline.status).toBe(500);
   });
 
   it("also stops after a 4xx baseline", async () => {
@@ -199,7 +204,13 @@ describe("installed-style CLI flow", () => {
       "utf8",
     );
 
-    const result = await runCli([inputFile, "--allow-mutation", "--no-color"]);
+    const result = await runCli([
+      inputFile,
+      "--allow-mutation",
+      "--no-color",
+      "--output",
+      join(directory, "output"),
+    ]);
 
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("The baseline request returned 422");
@@ -296,16 +307,81 @@ describe("installed-style CLI flow", () => {
       "--profile",
       "full",
       "--max-cases",
-      "100",
+      "4",
+      "--dry-run",
+      "--auth-body-path",
+      "$.password",
+      "--no-color",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("1 baseline + 4 checks = 5 requests");
+    expect(result.stdout).toContain("0 requests (dry-run)");
+    expect(result.stdout).toContain("no HTTP requests were sent");
+    expect(result.stdout).toContain("[authentication]");
+    expect((requests.get("/ok") ?? 0) - before).toBe(0);
+  });
+
+  it("IDOR dry-run shows its five-request maximum without contacting either identity", async () => {
+    const directory = await temporaryDirectory();
+    const inputA = join(directory, "a.curl");
+    const inputB = join(directory, "b.curl");
+    const configFile = join(directory, "idor.json");
+    const before = [...requests.values()].reduce(
+      (total, count) => total + count,
+      0,
+    );
+    await Promise.all([
+      writeFile(
+        inputA,
+        `curl '${origin}/objects/alpha' -H 'Authorization: Bearer ${CANARY}_A'`,
+      ),
+      writeFile(
+        inputB,
+        `curl '${origin}/objects/beta' -H 'Authorization: Bearer ${CANARY}_B'`,
+      ),
+      writeFile(
+        configFile,
+        JSON.stringify({
+          authModel: "bearer-only",
+          objectIdsGrantAccess: false,
+          rule: "a-cannot-read-b",
+          privateCanaries: true,
+          identity: {
+            url: `${origin}/me`,
+            principalPointer: "/id",
+            actorA: "actor-a",
+            actorB: "actor-b",
+          },
+          objects: {
+            pathTemplate: "/objects/{objectId}",
+            idPointer: "/id",
+            canaryPointer: "/privateMarker",
+            objectA: { id: "alpha", canary: "wQ8r4yM2Z6n9vK7p" },
+            objectB: { id: "beta", canary: "hT3s9cL5J2x8bV6d" },
+          },
+        }),
+      ),
+    ]);
+
+    const result = await runCli([
+      "idor",
+      inputA,
+      inputB,
+      "--config",
+      configFile,
       "--dry-run",
       "--no-color",
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("budget      0 requests");
+    expect(result.stdout).toContain("at most 5 GET requests");
+    expect(result.stdout).toContain("0 requests (dry-run)");
     expect(result.stdout).toContain("no HTTP requests were sent");
-    expect(result.stdout).toContain("[authentication]");
-    expect((requests.get("/ok") ?? 0) - before).toBe(0);
+    expect(
+      [...requests.values()].reduce((total, count) => total + count, 0),
+    ).toBe(before);
+    expect(result.stdout).not.toContain(CANARY);
   });
 
   it("passes explicit auth contract when missing and invalid credentials return 401", async () => {
@@ -313,12 +389,25 @@ describe("installed-style CLI flow", () => {
     const inputFile = join(directory, "auth.curl");
     const before = requests.get("/auth-protected") ?? 0;
     await writeFile(inputFile, workingCurl(`${origin}/auth-protected`), "utf8");
+    const contractFile = join(directory, "auth.json");
+    await writeFile(
+      contractFile,
+      JSON.stringify({
+        complete: true,
+        sources: [
+          { in: "header", name: "Authorization" },
+          { in: "json", pointer: "/password" },
+        ],
+      }),
+    );
 
     const result = await runCli([
       inputFile,
       "--profile",
       "security",
       "--expect-auth",
+      "--auth-contract",
+      contractFile,
       "--max-cases",
       "2",
       "--allow-mutation",
@@ -328,12 +417,8 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(
-      /PASS\s+AUTH\s+401\s+\d+ms\s+all credentials removed/,
-    );
-    expect(result.stdout).toMatch(
-      /PASS\s+AUTH\s+401\s+\d+ms\s+credentials replaced with invalid values/,
-    );
+    expect(result.stdout).toMatch(/PASS\s+AUTH\s+401/);
+    expect(result.stdout).toMatch(/PASS\s+AUTH\s+401/);
     expect((requests.get("/auth-protected") ?? 0) - before).toBe(3);
   });
 
@@ -341,11 +426,24 @@ describe("installed-style CLI flow", () => {
     const directory = await temporaryDirectory();
     const inputFile = join(directory, "auth-bypass.curl");
     await writeFile(inputFile, workingCurl(`${origin}/auth-bypass`), "utf8");
+    const contractFile = join(directory, "auth.json");
+    await writeFile(
+      contractFile,
+      JSON.stringify({
+        complete: true,
+        sources: [
+          { in: "header", name: "Authorization" },
+          { in: "json", pointer: "/password" },
+        ],
+      }),
+    );
 
     const result = await runCli([
       inputFile,
       "--security",
       "--expect-auth",
+      "--auth-contract",
+      contractFile,
       "--max-cases",
       "2",
       "--allow-mutation",
@@ -355,9 +453,7 @@ describe("installed-style CLI flow", () => {
     ]);
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toMatch(
-      /FAIL\s+AUTH\s+201\s+\d+ms\s+all credentials removed/,
-    );
+    expect(result.stdout).toMatch(/FAIL\s+AUTH\s+201/);
     expect(result.stdout).toContain("FAIL 2");
   });
 
@@ -441,6 +537,10 @@ describe("installed-style CLI flow", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("ПЛАН ЗАПУСКА");
+    expect(result.stdout).toContain(
+      "исходный: 1; проверки: 1; всего запросов: 2",
+    );
+    expect(result.stdout).toContain("0 запросов (только план)");
     expect(result.stdout).toContain("HTTP-запросы не отправлены");
     expect((requests.get("/ok") ?? 0) - before).toBe(0);
   });

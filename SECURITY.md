@@ -1,27 +1,35 @@
 # Security policy
 
-## Safe usage
+## Authorized, bounded testing
 
-BreakCurl sends one baseline request and may then send up to 200 sequential `POST`, `PUT`, `PATCH`, or `DELETE` checks. Default profiles are limited to 15–120 cases. Use the tool only against systems you are authorized to test and only with disposable data that can be safely modified or restored.
+Use BreakCurl only against systems you are authorized to test, with disposable test data. The ordinary CLI sends one working baseline and at most 200 sequential checks (15 by default). POST/PUT/PATCH/DELETE probes can execute real business operations, including when an authentication control is broken. Restoration of application data is the operator's responsibility; there is no hidden cleanup traffic.
 
-If the target API returns `HTTP 429`, BreakCurl immediately stops the remaining checks, returns `ERROR`, and records the number of skipped cases. This limits additional traffic after a rate limit is reached, but it does not replace an agreed request budget or an authorized test environment.
+Before traffic, the CLI shows the sanitized target, profile, request budget, and checks. Interactive runs require confirmation; noninteractive runs require `--allow-mutation`. The self-contained `demo` command authorizes only its temporary loopback fixtures. `--dry-run` always sends zero requests and does not start a demo server.
 
-Before execution, BreakCurl displays the sanitized target, profile, exact request budget, and coverage categories. Interactive runs require confirmation. Non-interactive runs require `--allow-mutation`. A `--dry-run` always sends zero HTTP requests.
+There are no retries, redirect following, concurrent probes, ID enumeration, brute force, SSRF, load/race testing, persistence, or automated destructive exploitation. The first HTTP 429 stops all subsequent requests. Ordinary checks also stop on transport failure. Response capture is bounded at 16 KiB; a truncated body is marked incomplete rather than called invalid JSON.
 
-The `security` and `full` profiles may send the original valid body without credentials or with invalid credentials. If an endpoint is vulnerable, an auth probe may execute the business operation. Use a non-production environment, a dedicated test entity, and a restoration plan. With `--expect-auth`, only `401/403` proves an authentication rejection.
+## Authentication evidence
 
-Security payloads use constrained, non-executable markers. BreakCurl does not perform brute force, SSRF, race/load testing, data extraction, persistence, or automated exploitation.
+Default quick runs include probes for recognized credentials. Removing a header does not prove the request is anonymous. Successful heuristic probes remain candidates. A strict `--expect-auth` check requires a complete auth contract declaring every credential source. The tool validates and mutates declared header/query/JSON locations together; the fixture author attests that there are no additional credential channels. The result is bounded by that declaration and the expected HTTP rejection, not a claim that a business operation occurred.
 
-BreakCurl parses the input cURL as data and never executes it through a shell. Unsupported shell syntax and unsupported cURL features are rejected before any request is sent.
+Undeclared body credentials can block auth probes. Secret-like body fields are not automatically treated as session credentials: they may be registration or login data. `--auth-body-path` supports explicit exploratory body locations; it does not attest complete authentication coverage.
 
-Sensitive headers, query parameters, JSON fields, known credential values, JWTs, and private-key patterns are redacted from generated files. API response bodies are not written to disk: reports contain only status, metadata, and a structural fingerprint. Redaction does not replace short-lived test credentials and least privilege.
+## IDOR evidence
 
-BreakCurl runs locally and has no accounts, telemetry, or cloud upload.
+The IDOR mode uses two controlled identities, two seeded private objects, and an explicit isolation contract. It performs at most five sequential GET requests: two identity checks, two allowed object reads, one cross-account read. It stops on failed prerequisites or 429. It never enumerates objects.
 
-## Supported releases
+Only same-origin Bearer-only GET is supported. Query strings, cookies, userinfo, fragments, extra headers, ambiguous inputs, and private canaries present in prepared requests are rejected before traffic. The fixture declares that object IDs do not themselves grant access and that the private canaries come from the stored private objects. The tool cannot prove the truth of those application-level declarations.
 
-Security fixes are provided for the latest published release.
+Disclosure requires both the known object ID and its private canary in the cross-account response. An error status cannot hide disclosed data. Incomplete/ambiguous responses and failed identities are not evidence of protection. Results apply to the exact pair, direction, and read operation; write-IDOR and arbitrary role/tenant policies remain outside the mode.
+
+## Input and artifacts
+
+cURL is parsed as data, never executed by a shell. Unsupported shell syntax, duplicate headers, and unsupported cURL options are rejected. Transport headers that could conflict with the HTTP client are removed.
+
+BreakCurl has no account system, telemetry, or cloud upload. It reads credentials into process memory; response bodies are analyzed in memory and never written to reports. Recognized secrets, explicitly declared credentials, and private IDOR canaries are redacted from reports and replay templates. Synthetic non-secret request values may remain; inspect artifacts before sharing.
+
+The HTML report is a passive local file without scripts, forms, external assets, or network calls, and includes a restrictive CSP. Dynamic HTML and Markdown text is context-escaped; XML and JSON use their own encoding. Only program-generated relative replay links are active. Reports do not execute the replay templates.
 
 ## Reporting a vulnerability
 
-Do not include active credentials, personal data, production payloads, or private URLs in public Issues. Send the maintainer a minimal sanitized reproduction through a private GitHub Security Advisory. Include the affected release, impact, reproduction steps, and expected protection.
+Do not put live credentials, personal data, production payloads, or private URLs in public issues. Send a minimal sanitized reproduction using a private GitHub Security Advisory for this repository. Include the affected version, impact, steps, and expected control. Security fixes are provided for the latest published release.

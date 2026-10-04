@@ -39,6 +39,10 @@ describe("safe cURL parser", () => {
     "curl https://api.example.test -d '{}' --form 'a=b'",
     "curl https://api.example.test -d @payload.json",
     "curl https://api.example.test -H 'X-Test: ok\r\nX-Evil: yes' -d '{}'",
+    "curl 'https://api.example.test/items#access_token=FRAGMENT_SECRET_1234'",
+    "curl 'https://api.example.test/items#'",
+    "curl https://api.example.test -H 'Authorization: Bearer one' -H 'authorization: Bearer two'",
+    "curl -X GET https://api.example.test -d '{}'",
   ])("rejects unsupported or shell input: %s", (input) => {
     expect(() => parseCurl(input)).toThrow();
   });
@@ -64,6 +68,17 @@ describe("safe cURL parser", () => {
 });
 
 describe("redaction", () => {
+  it("drops URL fragments defensively, including percent-encoded values", () => {
+    for (const fragment of [
+      CANARY,
+      `access_token=${CANARY}`,
+      encodeURIComponent(CANARY),
+    ]) {
+      expect(redactUrl(`https://example.test/items#${fragment}`)).not.toContain(
+        CANARY,
+      );
+    }
+  });
   it("removes the canary from query, headers, and nested JSON without mutating input", async () => {
     const request = parseCurl(
       `curl -X POST 'https://api.example.test/users?access_token=${CANARY}&page=1' -H 'Authorization: Bearer ${CANARY}' -H 'X-Request-ID: safe' -d '{"password":"${CANARY}","profile":{"api_key":"${CANARY}"}}'`,
@@ -200,7 +215,26 @@ describe("redaction", () => {
 });
 
 describe("request runner", () => {
+  const requests = new Map<string, number>();
   const server = createServer((request, response) => {
+    const path = request.url ?? "/";
+    requests.set(path, (requests.get(path) ?? 0) + 1);
+    const size = /^\/bytes\/(\d+)$/.exec(path)?.[1];
+    if (size) {
+      response.writeHead(400, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ data: "x".repeat(Number(size) - 11) }));
+      return;
+    }
+    if (path === "/redirect") {
+      response.writeHead(302, { Location: "/destination" });
+      response.end("redirect");
+      return;
+    }
+    if (path === "/slow-body") {
+      response.writeHead(503, { "Content-Type": "application/json" });
+      response.write('{"error":"');
+      return;
+    }
     if (request.url === "/slow") {
       setTimeout(() => response.end("too late"), 100);
       return;
@@ -253,6 +287,115 @@ describe("request runner", () => {
     );
     expect(result.status).toBe(200);
     expect(Buffer.byteLength(result.body)).toBe(16_384);
+    expect(result.bodyTruncated).toBe(true);
+  });
+
+  it.each([16_383, 16_384, 16_385])(
+    "distinguishes complete and truncated responses at %i bytes",
+    async (bytes) => {
+      const result = await sendRequest(
+        { method: "POST", url: `${url}/bytes/${bytes}`, headers: {}, body: {} },
+        1_000,
+      );
+      expect(result.status).toBe(400);
+      expect(Buffer.byteLength(result.body)).toBe(Math.min(bytes, 16_384));
+      expect(result.bodyTruncated).toBe(bytes > 16_384);
+      if (!result.bodyTruncated)
+        expect(() => JSON.parse(result.body)).not.toThrow();
+    },
+  );
+
+  it("does not follow redirects or retry requests", async () => {
+    const before = requests.get("/redirect") ?? 0;
+    const result = await sendRequest(
+      { method: "POST", url: `${url}/redirect`, headers: {}, body: {} },
+      1_000,
+    );
+    expect(result.status).toBe(302);
+    expect(result.headers.location).toBe("/destination");
+    expect((requests.get("/redirect") ?? 0) - before).toBe(1);
+    expect(requests.get("/destination") ?? 0).toBe(0);
+  });
+
+  it("preserves a received 5xx status when its body times out", async () => {
+    const result = await sendRequest(
+      { method: "POST", url: `${url}/slow-body`, headers: {}, body: {} },
+      100,
+    );
+    expect(result).toMatchObject({
+      status: 503,
+      timedOut: true,
+      connectionError: "Request timed out.",
+    });
+    expect(result.headers["content-type"]).toBe("application/json");
+    expect(result.bodyTruncated).toBeUndefined();
+    expect(requests.get("/slow-body")).toBe(1);
+  });
+
+  it("preserves received status on stream errors and does not retry", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("synthetic stream failure"));
+          },
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    try {
+      const result = await sendRequest(
+        { method: "POST", url: `${url}/stream-error`, headers: {}, body: {} },
+        1_000,
+      );
+      expect(result).toMatchObject({
+        status: 503,
+        timedOut: false,
+        connectionError: "Connection failed.",
+      });
+      expect(result.bodyTruncated).toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("cancels immediately after observing bytes past the cap", async () => {
+    const cancel = vi.fn();
+    let reads = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        new ReadableStream(
+          {
+            pull(controller) {
+              reads += 1;
+              controller.enqueue(
+                new Uint8Array(reads === 1 ? 16_384 : 1).fill(120),
+              );
+            },
+            cancel,
+          },
+          { highWaterMark: 0 },
+        ),
+      ),
+    );
+    try {
+      const result = await sendRequest(
+        {
+          method: "POST",
+          url: `${url}/infinite-stream`,
+          headers: {},
+          body: {},
+        },
+        1_000,
+      );
+      expect(result.bodyTruncated).toBe(true);
+      expect(Buffer.byteLength(result.body)).toBe(16_384);
+      expect(reads).toBe(2);
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it("recalculates content length for a changed JSON body", async () => {

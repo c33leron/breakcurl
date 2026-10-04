@@ -1,4 +1,11 @@
+import {
+  buildDeclaredAuthProbes,
+  hasPossibleBodyCredentials,
+  invalidAuthHeader,
+  invalidAuthValue,
+} from "./auth-contract.js";
 import { englishText, localized, message } from "./i18n.js";
+import { collectSensitiveValues } from "./redact.js";
 import type {
   CheckCategory,
   CheckExpectation,
@@ -31,7 +38,6 @@ interface CaseTemplate {
 }
 
 const MAX_CASES = 200;
-const INVALID_CREDENTIAL = "BREAKCURL_INVALID_CREDENTIAL";
 const SENSITIVE_FIELD_NAME =
   /password|passphrase|token|secret|authorization|auth|credential|cookie|session|jwt|api[_-]?key/i;
 const SENSITIVE_QUERY_NAME =
@@ -58,18 +64,90 @@ export function generateChecks(
   validateMaxCases(options.maxCases, language);
 
   const notes: GeneratedChecks["notes"] = [];
+  if (request.method === "GET" && (options.customCases?.length ?? 0) > 0) {
+    throw new Error(
+      message(
+        language,
+        "GET checks do not support JSON body mutations.",
+        "GET-проверки не поддерживают мутации JSON-тела.",
+      ),
+    );
+  }
   const customCases = (options.customCases ?? []).map((definition, index) =>
     createCustomCase(request, definition, index, language),
   );
   const fixedCases: MutationCase[] = [...customCases];
+  let authCases: MutationCase[] = [];
 
-  if (options.profile === "security" || options.profile === "full") {
-    const authCases = createAuthCases(request, options.expectAuth ?? false);
+  if (options.authContract && (options.authBodyPaths?.length ?? 0) > 0) {
+    throw new Error(
+      message(
+        language,
+        "Use authContract or authBodyPaths, not both; include all sources in the complete contract.",
+        "Используйте authContract или authBodyPaths; включите все источники в полный контракт.",
+      ),
+    );
+  }
+  // Validate even when a body-only profile will not execute auth probes.
+  const declared = options.authContract
+    ? buildDeclaredAuthProbes(request, options.authContract, language)
+    : undefined;
+
+  if (options.profile !== "negative") {
+    if (declared) {
+      const expectation = options.expectAuth ? "auth-reject" : "observe";
+      authCases = [
+        {
+          id: "auth-missing:credentials",
+          path: "$auth",
+          description: localized(
+            `All declared auth sources removed: ${declared.sources.join(", ")}`,
+            `Все заявленные auth sources удалены: ${declared.sources.join(", ")}`,
+          ),
+          kind: "auth-missing",
+          body: declared.missing.body,
+          headers: declared.missing.headers,
+          url: declared.missing.url,
+          category: "authentication",
+          expectation,
+          source: "built-in",
+        },
+        {
+          id: "auth-invalid:credentials",
+          path: "$auth",
+          description: localized(
+            `All declared auth sources invalidated: ${declared.sources.join(", ")}`,
+            `Все заявленные auth sources заменены: ${declared.sources.join(", ")}`,
+          ),
+          kind: "auth-invalid",
+          body: declared.invalid.body,
+          headers: declared.invalid.headers,
+          url: declared.invalid.url,
+          category: "authentication",
+          expectation,
+          source: "built-in",
+        },
+      ];
+      notes.push(
+        localized(
+          "Auth coverage is limited to the complete source declaration supplied by the operator. It assumes no authority in URL paths, transport, server-side sessions or other undeclared channels; the tool cannot verify that assumption. A strict result evaluates HTTP 401/403, not resource access or a completed operation.",
+          "Auth-охват ограничен полной декларацией источников от оператора. Предполагается отсутствие авторизации в URL path, transport, серверной сессии и других незаявленных каналах; инструмент не может подтвердить это предположение. Строгий результат проверяет HTTP 401/403, а не доступ к ресурсу или выполнение операции.",
+        ),
+      );
+    } else {
+      authCases = createAuthCases(
+        request,
+        options.expectAuth ?? false,
+        options.authBodyPaths ?? [],
+        language,
+        notes,
+      );
+    }
     if (authCases.length === 0) {
       notes.push(
         localized(
-          "Auth checks were skipped: no credentials were found in the source cURL.",
-          "Auth-проверки пропущены: в исходном cURL не найдено credentials.",
+          "Auth checks were not generated: credentials are missing or their locations are not fully declared. This run does not assess authentication.",
+          "Auth-проверки не созданы: credentials отсутствуют или их расположение не задано полностью. Авторизация этим запуском не проверяется.",
         ),
       );
     } else {
@@ -77,12 +155,12 @@ export function generateChecks(
     }
   }
 
-  if (fixedCases.length > options.maxCases) {
+  if (customCases.length > options.maxCases) {
     throw new Error(
       message(
         language,
-        `Explicit and priority checks require ${fixedCases.length} cases, but --max-cases=${options.maxCases}. Increase the limit.`,
-        `Явные и приоритетные проверки требуют ${fixedCases.length} кейсов, но --max-cases=${options.maxCases}. Увеличьте лимит.`,
+        `Explicit checks require ${customCases.length} cases, but --max-cases=${options.maxCases}. Increase the limit.`,
+        `Явные проверки требуют ${customCases.length} кейсов, но --max-cases=${options.maxCases}. Увеличьте лимит.`,
       ),
     );
   }
@@ -98,13 +176,28 @@ export function generateChecks(
     mutationsForField(request.body, field, options.profile),
   );
   const automaticCases = interleave(perField);
-  if (options.profile === "security" || options.profile === "full") {
+  if (
+    request.method !== "GET" &&
+    (options.profile === "security" || options.profile === "full")
+  ) {
     automaticCases.push(createContentTypeCase(request));
   }
-  if (options.profile !== "quick") {
+  if (request.method !== "GET" && options.profile !== "quick") {
     automaticCases.push(createUnknownFieldCase(request));
   }
   const cases = [...fixedCases, ...automaticCases].slice(0, options.maxCases);
+
+  if (authCases.length > 0) {
+    const selected = authCases.filter((authCase) => cases.includes(authCase));
+    const omitted = authCases.filter((authCase) => !cases.includes(authCase));
+    if (omitted.length > 0)
+      notes.push(
+        localized(
+          `Auth coverage: selected ${selected.length} of ${authCases.length} probes; skipped by --max-cases: ${omitted.map((item) => item.kind).join(", ")}.`,
+          `Auth-охват: выбрано ${selected.length} из ${authCases.length} проб; пропущены из-за --max-cases: ${omitted.map((item) => item.kind).join(", ")}.`,
+        ),
+      );
+  }
 
   if (automaticCases.length + fixedCases.length > cases.length) {
     notes.push(
@@ -126,6 +219,13 @@ export function generateChecks(
       ),
     );
   }
+
+  notes.push(
+    localized(
+      "IDOR was not tested: it requires two controlled identities and a private-object contract. Use the idor command. Injection probes are observations, not proof of exploitation.",
+      "IDOR не проверялся: нужны две контролируемые личности и контракт приватного объекта. Используйте команду idor. Инъекционные пробы дают наблюдения, а не доказательство эксплуатации.",
+    ),
+  );
 
   return { cases, notes };
 }
@@ -514,7 +614,56 @@ function createContentTypeCase(request: ParsedCurl): MutationCase {
 function createAuthCases(
   request: ParsedCurl,
   expectAuth: boolean,
+  bodyPaths: string[],
+  language: Language,
+  notes: TranslatableText[],
 ): MutationCase[] {
+  const missingBody = structuredClone(request.body);
+  const invalidBody = structuredClone(request.body);
+  for (const path of [...new Set(bodyPaths)]) {
+    const segments = parseJsonPath(path, language);
+    ensurePathExists(request.body, segments, path, language);
+    // Object properties only: removing array entries shifts other credential paths.
+    if (segments.some((part) => typeof part === "number")) {
+      throw new Error(
+        message(
+          language,
+          "authBodyPaths must point to object properties, not array entries.",
+          "authBodyPaths должен указывать на поля объектов, а не элементы массива.",
+        ),
+      );
+    }
+    const parent = getParent(request.body, segments, language);
+    const key = segments.at(-1);
+    if (typeof key !== "string" || Array.isArray(parent))
+      throw new Error(
+        message(
+          language,
+          "authBodyPaths must point to object properties.",
+          "authBodyPaths должен указывать на поля объектов.",
+        ),
+      );
+    const credential = parent[key];
+    if (typeof credential !== "string" || credential.trim() === "")
+      throw new Error(
+        message(
+          language,
+          "authBodyPaths must point to non-empty string credentials.",
+          "authBodyPaths должен указывать на непустые строковые credentials.",
+        ),
+      );
+    removeAtPath(missingBody, segments, language);
+    setAtPath(invalidBody, segments, invalidAuthValue(credential), language);
+  }
+  const secrets = collectSensitiveValues(request);
+  if (hasPossibleBodyCredentials(missingBody, secrets)) {
+    const limitation = localized(
+      "Auth checks skipped: possible credentials remain in the JSON body. Declare each credential with --auth-body-path or config.authBodyPaths; do not treat a partial removal as an auth bypass.",
+      "Auth-проверки пропущены: в JSON-теле могут оставаться credentials. Укажите каждое поле через --auth-body-path или config.authBodyPaths; частичное удаление не доказывает обход авторизации.",
+    );
+    notes.push(limitation);
+    return [];
+  }
   const missingHeaders = Object.fromEntries(
     Object.entries(request.headers).filter(
       ([name]) => !AUTH_HEADERS.has(name.toLowerCase()),
@@ -523,8 +672,20 @@ function createAuthCases(
   const missingUrl = mutateSensitiveQuery(request.url, "remove");
   const hasHeaderAuth =
     Object.keys(missingHeaders).length !== Object.keys(request.headers).length;
-  const hasQueryAuth = missingUrl !== request.url;
-  if (!hasHeaderAuth && !hasQueryAuth) return [];
+  const hasQueryAuth = [...new URL(request.url).searchParams.keys()].some(
+    (name) => SENSITIVE_QUERY_NAME.test(name),
+  );
+  if (!hasHeaderAuth && !hasQueryAuth && bodyPaths.length === 0) {
+    if (expectAuth)
+      throw new Error(
+        message(
+          language,
+          "--expect-auth requires recognized credentials in the source cURL.",
+          "Для --expect-auth нужны распознанные credentials в исходном cURL.",
+        ),
+      );
+    return [];
+  }
 
   const invalidHeaders = Object.fromEntries(
     Object.entries(request.headers).map(([name, value]) => [
@@ -532,17 +693,32 @@ function createAuthCases(
       invalidHeaderValue(name, value),
     ]),
   );
-  const expectation: CheckExpectation = expectAuth ? "auth-reject" : "observe";
+  const expectation: CheckExpectation = "observe";
+  const changedSources = [
+    ...Object.keys(request.headers)
+      .filter((name) => AUTH_HEADERS.has(name.toLowerCase()))
+      .map((name) => `header:${name}`),
+    ...[...new URL(request.url).searchParams.keys()]
+      .filter((name) => SENSITIVE_QUERY_NAME.test(name))
+      .map((name) => `query:${name}`),
+    ...bodyPaths.map((path) => `json:${path}`),
+  ].join(", ");
+  notes.push(
+    localized(
+      `${expectAuth ? "--expect-auth alone does not establish complete auth coverage. " : ""}Only recognized header/query and explicitly selected JSON sources are changed. Other auth channels were not verified; successful responses are candidates, not strict auth failures. Supply a complete authContract with --expect-auth for the declared HTTP contract.`,
+      `${expectAuth ? "--expect-auth сам по себе не подтверждает полный auth-охват. " : ""}Меняются только распознанные header/query и явно выбранные JSON sources. Другие auth-каналы не проверены; успешные ответы являются кандидатами, а не строгими auth-ошибками. Для заявленного HTTP-контракта нужны полный authContract и --expect-auth.`,
+    ),
+  );
   return [
     {
       id: "auth-missing:credentials",
       path: "$auth",
       description: localized(
-        "all credentials removed",
-        "все credentials удалены",
+        `Selected auth sources removed (partial coverage): ${changedSources}`,
+        `Выбранные auth sources удалены (частичный охват): ${changedSources}`,
       ),
       kind: "auth-missing",
-      body: structuredClone(request.body),
+      body: missingBody,
       headers: missingHeaders,
       url: missingUrl,
       category: "authentication",
@@ -553,11 +729,11 @@ function createAuthCases(
       id: "auth-invalid:credentials",
       path: "$auth",
       description: localized(
-        "credentials replaced with invalid values",
-        "credentials заменены на невалидные",
+        `Selected auth sources invalidated (partial coverage): ${changedSources}`,
+        `Выбранные auth sources заменены (частичный охват): ${changedSources}`,
       ),
       kind: "auth-invalid",
-      body: structuredClone(request.body),
+      body: invalidBody,
       headers: invalidHeaders,
       url: mutateSensitiveQuery(request.url, "invalidate"),
       category: "authentication",
@@ -575,7 +751,11 @@ function mutateSensitiveQuery(
   for (const name of [...parsed.searchParams.keys()]) {
     if (!SENSITIVE_QUERY_NAME.test(name)) continue;
     if (operation === "remove") parsed.searchParams.delete(name);
-    else parsed.searchParams.set(name, INVALID_CREDENTIAL);
+    else
+      parsed.searchParams.set(
+        name,
+        invalidAuthValue(parsed.searchParams.get(name) ?? ""),
+      );
   }
   return parsed.toString();
 }
@@ -583,12 +763,7 @@ function mutateSensitiveQuery(
 function invalidHeaderValue(name: string, value: string): string {
   const normalized = name.toLowerCase();
   if (!AUTH_HEADERS.has(normalized)) return value;
-  if (normalized === "cookie") return "breakcurl_invalid=1";
-  if (normalized === "authorization" || normalized === "proxy-authorization") {
-    const scheme = value.trim().match(/^([^\s]+)\s+/)?.[1];
-    return scheme ? `${scheme} ${INVALID_CREDENTIAL}` : INVALID_CREDENTIAL;
-  }
-  return INVALID_CREDENTIAL;
+  return invalidAuthHeader(name, value);
 }
 
 function interleave(groups: MutationCase[][]): MutationCase[] {

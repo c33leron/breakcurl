@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BreakCurl bounded IDOR fixture contract",
+  "description": "For two owned disposable actors and private objects. Replace example canaries with independent random values already seeded in private fields. A true declaration is supplied by the fixture author, not inferred by BreakCurl.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "authModel",
+    "objectIdsGrantAccess",
+    "rule",
+    "privateCanaries",
+    "identity",
+    "objects"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "authModel": {
+      "const": "bearer-only",
+      "description": "Bearer is the only identity and authority source; path and transport supply no extra access."
+    },
+    "objectIdsGrantAccess": {
+      "const": false,
+      "description": "Object IDs are not capabilities, signed credentials or access grants."
+    },
+    "rule": {
+      "const": "a-cannot-read-b",
+      "description": "Actor A must not read object B; the fixture has no shared/public access."
+    },
+    "privateCanaries": {
+      "const": true,
+      "description": "Both markers were independently generated and seeded in private fields, are not derived from IDs, and cannot occur in public or reflected inputs."
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "principalPointer", "actorA", "actorB"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Fixed identity endpoint such as /me, on the same origin; no query, fragment, userinfo or redirects."
+        },
+        "principalPointer": { "$ref": "#/$defs/pointer" },
+        "actorA": { "$ref": "#/$defs/id" },
+        "actorB": { "$ref": "#/$defs/id" }
+      }
+    },
+    "objects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pathTemplate",
+        "idPointer",
+        "canaryPointer",
+        "objectA",
+        "objectB"
+      ],
+      "properties": {
+        "pathTemplate": {
+          "type": "string",
+          "description": "Absolute path with exactly one whole {objectId} segment, e.g. /objects/{objectId}. All other segments must be identical literal unencoded path segments."
+        },
+        "idPointer": { "$ref": "#/$defs/pointer" },
+        "canaryPointer": { "$ref": "#/$defs/pointer" },
+        "objectA": { "$ref": "#/$defs/fixture" },
+        "objectB": { "$ref": "#/$defs/fixture" }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "pointer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^/(?:[^~]|~[01])*$",
+      "description": "Non-root RFC 6901 JSON Pointer; exact string equality is required."
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "canary"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$",
+          "maxLength": 2048
+        },
+        "canary": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 256,
+          "pattern": "^[!-~]+$",
+          "description": "Independently seeded private random marker, distinct for each object, never present in any prepared request. It is discarded from responses and reports."
+        }
+      }
+    }
+  }
+}

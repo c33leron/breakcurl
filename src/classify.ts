@@ -29,27 +29,47 @@ export function classifyCase(
   response: HttpResult,
   context: ClassificationContext = {},
 ): ClassificationResult {
+  return withSignals(
+    classifyHttpResult(mutation, response, context),
+    detectSecuritySignals(mutation, response),
+  );
+}
+
+function classifyHttpResult(
+  mutation: MutationCase,
+  response: HttpResult,
+  context: ClassificationContext,
+): ClassificationResult {
+  // A received server-error status remains evidence even if its body fails.
+  if (response.status >= 500) {
+    return {
+      classification: "FAIL",
+      reason: localized(
+        `The API returned HTTP ${response.status}.`,
+        `API вернул HTTP ${response.status}.`,
+      ),
+      severity: "HIGH",
+      confidence: "HIGH",
+    };
+  }
+
   if (response.timedOut) {
     return {
-      classification: "WARN",
+      classification: "ERROR",
       reason: localized(
-        "The request timed out after a successful baseline request.",
-        "Запрос завершился по тайм-ауту после успешного исходного запроса.",
+        "The request timed out; the check could not be fully evaluated.",
+        "Запрос завершился по тайм-ауту; проверку не удалось полностью выполнить.",
       ),
-      severity: "MEDIUM",
-      confidence: "HIGH",
     };
   }
 
   if (response.connectionError) {
     return {
-      classification: "WARN",
+      classification: "ERROR",
       reason: localized(
-        "A connection error occurred after a successful baseline request.",
-        "После успешного исходного запроса произошла ошибка соединения.",
+        "A connection error prevented the check from being fully evaluated.",
+        "Ошибка соединения не позволила полностью выполнить проверку.",
       ),
-      severity: "MEDIUM",
-      confidence: "MEDIUM",
     };
   }
 
@@ -63,63 +83,6 @@ export function classifyCase(
     };
   }
 
-  const securitySignals = detectSecuritySignals(mutation, response);
-
-  if (response.status >= 500) {
-    return withSignals(
-      {
-        classification: "FAIL",
-        reason: localized(
-          `The API returned HTTP ${response.status}.`,
-          `API вернул HTTP ${response.status}.`,
-        ),
-        severity: "HIGH",
-        confidence: "HIGH",
-      },
-      securitySignals,
-    );
-  }
-
-  if (
-    declaresJson(response) &&
-    response.body.trim() !== "" &&
-    !isValidJson(response.body)
-  ) {
-    return withSignals(
-      {
-        classification: "FAIL",
-        reason: localized(
-          "The response declares JSON but contains invalid JSON.",
-          "Ответ объявлен как JSON, но содержит невалидный JSON.",
-        ),
-        severity: "MEDIUM",
-        confidence: "HIGH",
-      },
-      securitySignals,
-    );
-  }
-
-  if (securitySignals.length > 0) {
-    return {
-      classification: "WARN",
-      reason: localized(
-        securitySignals
-          .map((signal) => renderText(signal.title, "en"))
-          .join("; "),
-        securitySignals
-          .map((signal) => renderText(signal.title, "ru"))
-          .join("; "),
-      ),
-      severity: highestSeverity(securitySignals),
-      confidence: "HIGH",
-      securitySignals,
-    };
-  }
-
-  if (mutation.category === "authentication") {
-    return classifyAuthentication(mutation, response, context);
-  }
-
   if (response.status >= 300 && response.status < 400) {
     return {
       classification: "ERROR",
@@ -128,6 +91,48 @@ export function classifyCase(
         `Получен redirect HTTP ${response.status}; BreakCurl не переходит по redirects.`,
       ),
     };
+  }
+
+  if (
+    (mutation.category === "authentication" ||
+      mutation.expectation === "auth-reject") &&
+    isSuccessful(response.status) &&
+    (context.expectAuth === true || mutation.expectation === "auth-reject")
+  ) {
+    return classifyAuthentication(mutation, response, context);
+  }
+
+  if (response.bodyTruncated) {
+    return {
+      classification: "ERROR",
+      reason: localized(
+        `The HTTP ${response.status} response exceeded the retained body limit; the complete response contract could not be evaluated.`,
+        `Ответ HTTP ${response.status} превысил лимит сохраняемого тела; контракт полного ответа не удалось проверить.`,
+      ),
+    };
+  }
+
+  if (
+    declaresJson(response) &&
+    response.body.trim() !== "" &&
+    !isValidJson(response.body)
+  ) {
+    return {
+      classification: "FAIL",
+      reason: localized(
+        "The response declares JSON but contains invalid JSON.",
+        "Ответ объявлен как JSON, но содержит невалидный JSON.",
+      ),
+      severity: "MEDIUM",
+      confidence: "HIGH",
+    };
+  }
+
+  if (
+    mutation.category === "authentication" ||
+    mutation.expectation === "auth-reject"
+  ) {
+    return classifyAuthentication(mutation, response, context);
   }
 
   const expectation = mutation.expectation;
@@ -244,7 +249,14 @@ export function toCaseResult(
 
 export const classifyResponse = classifyCase;
 
-export function responseSchemaFingerprint(response: HttpResult): string {
+export function responseSchemaFingerprint(response: HttpResult): string | null {
+  if (
+    response.bodyOmitted ||
+    response.bodyTruncated ||
+    response.timedOut ||
+    response.connectionError
+  )
+    return null;
   return createHash("sha256")
     .update(`${response.status}:${responseContractShape(response)}`)
     .digest("hex")
@@ -267,30 +279,27 @@ function classifyAuthentication(
   }
 
   if (isSuccessful(response.status)) {
-    const similar = context.baseline
-      ? sameResponseContract(context.baseline, response)
-      : false;
     const expectsAuth =
       context.expectAuth === true || mutation.expectation === "auth-reject";
     return {
       classification: expectsAuth ? "FAIL" : "WARN",
-      reason: similar
+      reason: expectsAuth
         ? localized(
-            `The auth probe returned HTTP ${response.status}, and its response contract matched the authorized baseline request.`,
-            `Auth-probe получил HTTP ${response.status}, а контракт ответа совпал с авторизованным исходным запросом.`,
+            `The auth probe returned HTTP ${response.status} instead of the required 401/403. Resource access and side effects were not verified.`,
+            `Auth-probe получил HTTP ${response.status} вместо обязательного 401/403. Доступ к ресурсу и побочные действия не проверялись.`,
           )
         : localized(
             `The auth probe returned successful HTTP ${response.status}; the endpoint may be public and must be checked against requirements.`,
             `Auth-probe получил успешный HTTP ${response.status}; endpoint может быть публичным, это нужно подтвердить требованиями.`,
           ),
       severity: expectsAuth ? "HIGH" : "MEDIUM",
-      confidence: similar ? "HIGH" : "MEDIUM",
+      confidence: expectsAuth ? "HIGH" : "MEDIUM",
       securitySignals: [
         {
           id: "authentication-not-enforced",
           title: localized(
-            "Successful response without valid credentials",
-            "Успешный ответ без корректных credentials",
+            "Auth probe returned a successful HTTP status",
+            "Auth-probe получил успешный HTTP-статус",
           ),
           severity: expectsAuth ? "HIGH" : "MEDIUM",
           cwe: "CWE-306",
@@ -402,13 +411,6 @@ function detectSecuritySignals(
   return signals;
 }
 
-function sameResponseContract(left: HttpResult, right: HttpResult): boolean {
-  if (Math.floor(left.status / 100) !== Math.floor(right.status / 100)) {
-    return false;
-  }
-  return responseContractShape(left) === responseContractShape(right);
-}
-
 function responseContractShape(response: HttpResult): string {
   const contentType = getHeader(response.headers, "content-type") ?? "unknown";
   let shape: string;
@@ -453,12 +455,48 @@ function withSignals(
   result: ClassificationResult,
   signals: SecuritySignal[],
 ): ClassificationResult {
-  return signals.length > 0 ? { ...result, securitySignals: signals } : result;
+  if (signals.length === 0) return result;
+  const securitySignals = [...(result.securitySignals ?? []), ...signals];
+  if (result.classification === "FAIL" || result.classification === "ERROR") {
+    return { ...result, securitySignals };
+  }
+  const strongerSignals = signals.some(
+    (signal) => signal.id !== "technology-header",
+  );
+  return {
+    ...result,
+    classification:
+      strongerSignals || result.classification === "WARN" ? "WARN" : "INFO",
+    reason: localized(
+      [
+        renderText(result.reason, "en"),
+        ...signals.map((signal) => renderText(signal.title, "en")),
+      ].join("; "),
+      [
+        renderText(result.reason, "ru"),
+        ...signals.map((signal) => renderText(signal.title, "ru")),
+      ].join("; "),
+    ),
+    severity: highestSeverity(securitySignals, result.severity),
+    confidence: result.confidence ?? "HIGH",
+    securitySignals,
+  };
 }
 
-function highestSeverity(signals: SecuritySignal[]): FindingSeverity {
-  if (signals.some((signal) => signal.severity === "HIGH")) return "HIGH";
-  if (signals.some((signal) => signal.severity === "MEDIUM")) return "MEDIUM";
+function highestSeverity(
+  signals: SecuritySignal[],
+  existing?: FindingSeverity,
+): FindingSeverity {
+  if (
+    existing === "HIGH" ||
+    signals.some((signal) => signal.severity === "HIGH")
+  )
+    return "HIGH";
+  if (
+    existing === "MEDIUM" ||
+    signals.some((signal) => signal.severity === "MEDIUM")
+  )
+    return "MEDIUM";
   return "LOW";
 }
 

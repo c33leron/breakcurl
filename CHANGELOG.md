@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — Security checks and local HTML reports
+
+- Standalone `report.html` with localized findings, baseline assessment, evidence, request counts, and explicit scope limits; no scripts or external resources.
+- Consistent overall outcome and next action in CLI, HTML, Markdown, and JSON. Incomplete baseline-only runs also surface as JUnit errors and unsuccessful SARIF invocations.
+- Dry-run shows the future request budget separately from its zero traffic. Cross-platform replay links and a complete IDOR setup guide improve the first run.
+- Default auth observations in `quick`, plus safe GET request support without a request body.
+- **Migration from 0.2:** strict `--expect-auth` checks now require an explicit, complete authentication contract. Pass `--auth-contract` in the CLI or `auth-contract` in the GitHub Action.
+- Opt-in IDOR workflow with two identities and five bounded reads: both identity controls, both own-object controls, and one cross-account read. A failed control stops the remaining requests.
+- Aggregate secret redaction across identities, report text, CI formats, and replays; inert HTML and Markdown output, with API response bodies excluded.
+- Incomplete-response metadata and unavailable fingerprints for truncated bodies or transport failures, preventing complete-response claims from partial evidence.
+- Preserve Node.js 20 support for the new CLI flows.
+- Update Vitest to 4.1.11 to address [GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9) in the development toolchain.
+
 ## 0.2.0 — CI integration and onboarding
 
 - `--junit [file]` writes a JUnit XML report: `FAIL` → failure, `ERROR` → error, `WARN` → skipped.

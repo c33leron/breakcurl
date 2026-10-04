@@ -1,6 +1,14 @@
+import { stripVTControlCharacters } from "node:util";
 import { createColors } from "picocolors";
-import { renderText } from "./i18n.js";
-import type { CaseResult, Classification, Language } from "./types.js";
+import { message, renderText } from "./i18n.js";
+import { redactText } from "./redact.js";
+import { summarizeRun } from "./run-summary.js";
+import type {
+  CaseResult,
+  Classification,
+  Language,
+  RunResult,
+} from "./types.js";
 
 export function printBanner(mode: string, colorEnabled: boolean): void {
   const colors = createColors(colorEnabled);
@@ -18,7 +26,7 @@ export function printKeyValue(
   colorEnabled: boolean,
 ): void {
   const colors = createColors(colorEnabled);
-  console.log(`  ${colors.dim(key.padEnd(12))}${value}`);
+  console.log(`  ${colors.dim(key.padEnd(12))} ${safeTerminalText(value)}`);
 }
 
 export function printBaseline(
@@ -31,7 +39,7 @@ export function printBaseline(
   const colors = createColors(colorEnabled);
   const statusLabel = colorStatus(String(status), status, colors);
   console.log(
-    `  ${statusLabel.padEnd(colorEnabled ? String(status).length : 3)}  ${String(latencyMs).padStart(5)}ms  ${colors.bold(method)} ${url}`,
+    `  ${statusLabel.padEnd(colorEnabled ? String(status).length : 3)}  ${String(latencyMs).padStart(5)}ms  ${colors.bold(method)} ${safeTerminalText(url)}`,
   );
 }
 
@@ -41,6 +49,7 @@ export function printCaseLine(
   total: number,
   colorEnabled: boolean,
   language: Language,
+  knownSecrets: string[] = [],
 ): void {
   const colors = createColors(colorEnabled);
   const width = String(total).length;
@@ -51,7 +60,7 @@ export function printCaseLine(
   const status = displayStatus(item.response.status).padStart(3);
   const latency = `${item.response.latencyMs}ms`.padStart(7);
   console.log(
-    `  [${counter}] ${verdict}  ${colors.dim(category)}  ${status}  ${latency}  ${renderText(item.mutation.description, language)}`,
+    `  [${counter}] ${verdict}  ${colors.dim(category)}  ${status}  ${latency}  ${safeTerminalText(redactText(renderText(item.mutation.description, language), knownSecrets))}`,
   );
 }
 
@@ -76,13 +85,48 @@ export function printResultSummary(
   printKeyValue("results", parts.join("   "), colorEnabled);
 }
 
+export function printRunOutcome(
+  result: RunResult,
+  colorEnabled: boolean,
+  language: Language,
+): void {
+  const summary = summarizeRun(result);
+  printKeyValue(
+    message(language, "outcome", "результат"),
+    renderText(summary.title, language),
+    colorEnabled,
+  );
+  printKeyValue(
+    message(language, "meaning", "пояснение"),
+    renderText(summary.explanation, language),
+    colorEnabled,
+  );
+  printKeyValue(
+    message(language, "next", "дальше"),
+    renderText(summary.nextAction, language),
+    colorEnabled,
+  );
+  printKeyValue(
+    message(language, "tries / plan", "запросы/план"),
+    `${summary.requestsAttempted} / ${summary.requestsPlanned ?? message(language, "unknown", "неизвестно")}`,
+    colorEnabled,
+  );
+}
+
 export function printNotice(
   label: string,
   message: string,
   colorEnabled: boolean,
 ): void {
   const colors = createColors(colorEnabled);
-  console.log(`  ${colors.yellow(colors.bold(label))}  ${message}`);
+  console.log(
+    `  ${colors.yellow(colors.bold(label))}  ${safeTerminalText(message)}`,
+  );
+}
+
+export function safeTerminalText(value: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: untrusted text must not control the terminal
+  return stripVTControlCharacters(value).replace(/[\u0000-\u001f\u007f]/g, " ");
 }
 
 export function displayStatus(status: number): string {

@@ -1,0 +1,7 @@
+{
+  "complete": true,
+  "sources": [
+    { "in": "header", "name": "Authorization" },
+    { "in": "json", "pointer": "/ticket" }
+  ]
+}

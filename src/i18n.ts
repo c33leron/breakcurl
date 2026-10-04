@@ -1,6 +1,6 @@
-import type { Language, TranslatableText } from "./types.js";
+import type { Language, LocalizedText, TranslatableText } from "./types.js";
 
-export function localized(en: string, ru: string): TranslatableText {
+export function localized(en: string, ru: string): LocalizedText {
   return { en, ru };
 }
 

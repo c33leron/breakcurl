@@ -33,7 +33,16 @@
     },
     "expectAuth": {
       "type": "boolean",
-      "description": "Require auth probes to return 401/403 (profile security or full)."
+      "description": "With a complete authContract, require auth probes to return 401/403 (quick, security or full). Without it, 2xx remains a candidate. This is an HTTP contract, not proof of a completed operation."
+    },
+    "authBodyPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/jsonPath" },
+      "description": "Convenience selection of string JSON credential fields for partial auth probes. No array indices. Use authContract for a complete declaration; do not combine both options."
+    },
+    "authContract": {
+      "$ref": "#/definitions/authContract"
     },
     "customCases": {
       "type": "array",
@@ -72,6 +81,46 @@
     }
   },
   "definitions": {
+    "authContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "sources"],
+      "description": "Operator declaration that these are all auth sources; credentials in paths, transport, server-side sessions and undeclared locations are absent. Values remain in the source cURL, never in this declaration.",
+      "properties": {
+        "complete": { "const": true },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["in", "name"],
+                "properties": {
+                  "in": { "enum": ["header", "query"] },
+                  "name": { "type": "string", "minLength": 1 }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["in", "pointer"],
+                "properties": {
+                  "in": { "const": "json" },
+                  "pointer": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Non-root RFC 6901 pointer to a non-empty string object property. Arrays and prototype traversal are unsupported."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "jsonPath": {
       "type": "string",
       "pattern": "^\\$",

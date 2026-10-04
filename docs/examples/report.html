@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; connect-src 'none'; img-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>BreakCurl report</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f6f8;--surface:#fff;--ink:#202a36;--muted:#596675;--border:#d9dfe6;--accent:#245d83;--fail:#a62539;--warn:#855300;--pass:#216440;--info:#435b77;--error:#79418b}
+.run-verdict{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--accent);border-radius:14px;padding:24px}.run-verdict h2{font-size:clamp(24px,3vw,32px);margin-bottom:12px}.run-verdict.incomplete{border-left-color:var(--error)}.run-verdict.findings{border-left-color:var(--fail)}.run-verdict.review{border-left-color:var(--warn)}.run-verdict.complete{border-left-color:var(--pass)}.run-verdict .action{margin-bottom:0}.run-counts{font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}.status-guide{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 24px;margin:18px 0 0;font-size:13px}.status-guide>div{display:flex;align-items:baseline;gap:10px}.status-guide dt{flex:none}.status-guide dd{margin:0;color:var(--muted)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1120px;margin:auto;padding:52px 28px 28px}header{margin-bottom:32px}.eyebrow{font-size:11px;letter-spacing:.16em;font-weight:750;color:var(--accent)}h1{font-size:clamp(30px,4vw,46px);line-height:1.15;letter-spacing:-.03em;margin:10px 0 14px}h2{font-size:21px;margin:0 0 16px;line-height:1.3}h3{font-size:17px;display:flex;align-items:flex-start;gap:12px;margin:0;padding:20px 22px;border-bottom:1px solid var(--border)}p{margin:0 0 12px}.subtitle,.muted{color:var(--muted)}section{margin:0 0 34px}.target,.limitations{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px}.target-url{display:flex;gap:14px;align-items:baseline}.target-url strong{color:var(--accent)}code{font: .9em/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.counts{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.count{border:1px solid var(--border);border-top:3px solid currentColor;background:var(--surface);border-radius:10px;padding:14px 18px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}.count strong{font-size:30px;line-height:1.2}.count span{font-size:12px;font-weight:750;letter-spacing:.05em}.fail{color:var(--fail)}.warn{color:var(--warn)}.pass{color:var(--pass)}.info{color:var(--info)}.error{color:var(--error)}.section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.section-heading>span{font-variant-numeric:tabular-nums;color:var(--muted)}.finding,.check{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin:0 0 12px;overflow:hidden}.badge{font-size:11px;line-height:1.8;font-weight:800;letter-spacing:.04em;border:1px solid currentColor;border-radius:5px;padding:1px 8px;flex:none}.evidence{padding:20px 22px}.reason{font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere}.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px 24px;margin:20px 0}.facts dt{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:650}.facts dd{margin:3px 0 0;overflow-wrap:anywhere}.action{border-left:3px solid var(--accent);padding:10px 14px;background:var(--bg);font-size:14px}.action strong{display:block}.replay{display:inline-block;font-size:14px;color:var(--accent);margin:6px 0 10px;text-underline-offset:3px}.technical{font-size:13px;color:var(--muted);margin-top:10px}.technical summary{cursor:pointer;display:list-item;padding:0}.technical p{margin:8px 0;overflow-wrap:anywhere}.check>summary{cursor:pointer;display:flex;align-items:baseline;gap:12px;padding:17px 22px}.check>summary::before{content:"+";color:var(--muted);font-weight:600}.check[open]>summary::before{content:"−"}.check[open]>summary{border-bottom:1px solid var(--border)}summary>span:not(.badge){overflow-wrap:anywhere}.http{font-size:12px;color:var(--muted);margin-left:auto;flex:none}.notice{color:var(--warn);border:1px solid var(--border);padding:10px 14px;border-radius:6px}.empty{padding:22px;border:1px dashed var(--border);border-radius:12px;color:var(--muted)}ul{padding-left:22px;margin:0}li+li{margin-top:10px}li{overflow-wrap:anywhere}.signals{font-size:14px;margin-bottom:16px}footer{padding-top:20px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}a:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+@media(prefers-color-scheme:dark){:root{--bg:#141a22;--surface:#1c2530;--ink:#e5ebf2;--muted:#adbac9;--border:#354151;--accent:#8bc9ee;--fail:#ff9bab;--warn:#e6bf7b;--pass:#93d9af;--info:#b2cbed;--error:#d9adeb}}
+@media(max-width:680px){main{padding:28px 16px}.counts{grid-template-columns:repeat(3,1fr);gap:8px}.count{padding:12px;display:block}.count strong,.count span{display:block}.facts{grid-template-columns:repeat(2,minmax(0,1fr))}.target,.limitations,.run-verdict{padding:20px}.status-guide{grid-template-columns:1fr}.target-url{display:block}.target-url strong{display:block}.check>summary{flex-wrap:wrap;padding:16px}.http{margin-left:24px}.evidence,h3{padding:16px}h3{flex-wrap:wrap}}
+@media print{:root{color-scheme:light;--bg:#fff;--surface:#fff;--ink:#111;--muted:#444;--border:#ccc;--accent:#245d83}main{max-width:none;padding:0}.finding,.check{break-inside:avoid}a{color:inherit}}
+</style>
+</head>
+<body><main>
+<header><p class="eyebrow">BREAKCURL / REQUEST EVIDENCE</p><h1>BreakCurl report</h1><p class="muted">Saved example from a deliberately broken local demo API. All request data is synthetic; the temporary target is no longer running.</p></header>
+<section class="run-verdict findings" data-outcome="findings" aria-labelledby="verdict-title"><p class="eyebrow">OVERALL RESULT</p><h2 id="verdict-title">Failures found</h2><p>The run found a server failure or a violation of a tested contract. The findings below explain the evidence and its limits.</p><p class="run-counts">Requests attempted / planned: <strong>25 / 25</strong> · 24 checks executed</p><p class="action"><strong>Next action</strong> Start with a FAIL finding. Reproduce it with disposable data and confirm the impact using server logs and final state.</p></section>
+<section class="target" aria-labelledby="target-title"><h2 id="target-title">Target and baseline</h2><p class="target-url"><strong>POST</strong> <code>http://127.0.0.1:60426/api/users?token=%3CREDACTED%3E</code></p><p class="muted">Mode: checks · Profile: full · HTTP 201 · 9 ms</p><details class="technical"><summary>Baseline metadata</summary><p>Structure fingerprint: <code>0e9fdb784969c859</code></p></details></section>
+<section aria-labelledby="summary-title"><h2 id="summary-title">Check results</h2><p class="muted">Counts cover additional checks only. The baseline is assessed separately below.</p><div class="counts"><div class="count fail"><strong>1</strong><span>FAIL</span></div><div class="count warn"><strong>1</strong><span>WARN</span></div><div class="count error"><strong>0</strong><span>ERROR</span></div><div class="count info"><strong>15</strong><span>INFO</span></div><div class="count pass"><strong>7</strong><span>PASS</span></div></div><dl class="status-guide"><div><dt><span class="badge fail">FAIL</span></dt><dd>A check rule was violated; confirm the impact.</dd></div><div><dt><span class="badge warn">WARN</span></dt><dd>A signal needs confirmation against the API contract.</dd></div><div><dt><span class="badge error">ERROR</span></dt><dd>The check could not be fully evaluated.</dd></div><div><dt><span class="badge info">INFO</span></dt><dd>An observation, without a defect conclusion.</dd></div><div><dt><span class="badge pass">PASS</span></dt><dd>This check received the expected response.</dd></div></dl></section>
+<section aria-labelledby="baseline-assessment-title"><h2 id="baseline-assessment-title">Baseline assessment</h2><article class="finding"><h3><span class="badge info">INFO</span> <span>Existing baseline response</span></h3><div class="evidence"><p class="reason">Observation without a strict oracle: HTTP 201.</p><ul class="signals"></ul><p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p><p class="muted">Uses the baseline already sent; it is not an additional check or request.</p></div></article></section>
+<section aria-labelledby="findings-title"><div class="section-heading"><h2 id="findings-title">Checks needing attention</h2><span>2</span></div><article class="finding"><h3><span class="badge fail">FAIL</span> <span>$.age = null</span></h3><div class="evidence">
+      <p class="reason">The API returned HTTP 500.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>500</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+        <div><dt>Risk</dt><dd>HIGH</dd></div>
+        <div><dt>Confidence</dt><dd>HIGH</dd></div>
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Reproduce with authorized test data and compare the expected rule with server logs and final state. Confirm impact before treating this as a vulnerability.</p>
+      <details class="technical"><summary>Sanitized replay cURL</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">curl -X POST http\://127.0.0.1\:60426/api/users\?token\=%3CREDACTED%3E \
+  -H &#x27;Authorization: Bearer &lt;REDACTED&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  --data-raw &#x27;{&quot;email&quot;:&quot;qa@example.com&quot;,&quot;age&quot;:null,&quot;token&quot;:&quot;&lt;REDACTED&gt;&quot;}&#x27;</pre></details>
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>eb81dc283304d798</code></p><p>Check ID: <code>null:$.age</code></p></details>
+    </div></article>
+<article class="finding"><h3><span class="badge warn">WARN</span> <span>$.age = &quot;not-a-number&quot;</span></h3><div class="evidence">
+      <p class="reason">The API accepted a value that was expected to be rejected with HTTP 200.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>200</dd></div>
+        <div><dt>Time</dt><dd>3 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+        <div><dt>Risk</dt><dd>MEDIUM</dd></div>
+        <div><dt>Confidence</dt><dd>MEDIUM</dd></div>
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Review the API contract and final state, then repeat with a control request. This signal needs confirmation.</p>
+      <details class="technical"><summary>Sanitized replay cURL</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">curl -X POST http\://127.0.0.1\:60426/api/users\?token\=%3CREDACTED%3E \
+  -H &#x27;Authorization: Bearer &lt;REDACTED&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  --data-raw &#x27;{&quot;email&quot;:&quot;qa@example.com&quot;,&quot;age&quot;:&quot;not-a-number&quot;,&quot;token&quot;:&quot;&lt;REDACTED&gt;&quot;}&#x27;</pre></details>
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>9285ebf40aa3d954</code></p><p>Check ID: <code>wrong-type:$.age</code></p></details>
+    </div></article></section>
+<section aria-labelledby="checks-title"><h2 id="checks-title">All checks and observations</h2><p class="muted">Expand a check for its expectation, evidence, and next action.</p><details class="check"><summary><span class="badge pass">PASS</span> <span>All declared auth sources removed: header:Authorization, query:token, json:/token</span><span class="http">HTTP 401</span></summary><div class="evidence">
+      <p class="reason">The API rejected the auth probe with HTTP 401.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject unauthorized access</dd></div>
+        <div><dt>HTTP</dt><dd>401</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>authentication</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$auth</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> The expected response was observed for this check. Keep this case as a regression check; coverage remains limited to the executed requests.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>100094702f6f6208</code></p><p>Check ID: <code>auth-missing:credentials</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge pass">PASS</span> <span>All declared auth sources invalidated: header:Authorization, query:token, json:/token</span><span class="http">HTTP 401</span></summary><div class="evidence">
+      <p class="reason">The API rejected the auth probe with HTTP 401.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject unauthorized access</dd></div>
+        <div><dt>HTTP</dt><dd>401</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>authentication</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$auth</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> The expected response was observed for this check. Keep this case as a regression check; coverage remains limited to the executed requests.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>100094702f6f6208</code></p><p>Check ID: <code>auth-invalid:credentials</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge pass">PASS</span> <span>field $.email removed</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">The API rejected the check in a controlled way with HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> The expected response was observed for this check. Keep this case as a regression check; coverage remains limited to the executed requests.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>remove:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge pass">PASS</span> <span>field $.age removed</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">The API rejected the check in a controlled way with HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> The expected response was observed for this check. Keep this case as a regression check; coverage remains limited to the executed requests.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>remove:$.age</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge pass">PASS</span> <span>$.email = null</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">The API rejected the check in a controlled way with HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> The expected response was observed for this check. Keep this case as a regression check; coverage remains limited to the executed requests.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>null:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge fail">FAIL</span> <span>$.age = null</span><span class="http">HTTP 500</span></summary><div class="evidence">
+      <p class="reason">The API returned HTTP 500.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>500</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+        <div><dt>Risk</dt><dd>HIGH</dd></div>
+        <div><dt>Confidence</dt><dd>HIGH</dd></div>
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Reproduce with authorized test data and compare the expected rule with server logs and final state. Confirm impact before treating this as a vulnerability.</p>
+      <details class="technical"><summary>Sanitized replay cURL</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">curl -X POST http\://127.0.0.1\:60426/api/users\?token\=%3CREDACTED%3E \
+  -H &#x27;Authorization: Bearer &lt;REDACTED&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  --data-raw &#x27;{&quot;email&quot;:&quot;qa@example.com&quot;,&quot;age&quot;:null,&quot;token&quot;:&quot;&lt;REDACTED&gt;&quot;}&#x27;</pre></details>
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>eb81dc283304d798</code></p><p>Check ID: <code>null:$.age</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge pass">PASS</span> <span>$.email = 123</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">The API rejected the check in a controlled way with HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> The expected response was observed for this check. Keep this case as a regression check; coverage remains limited to the executed requests.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>wrong-type:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge warn">WARN</span> <span>$.age = &quot;not-a-number&quot;</span><span class="http">HTTP 200</span></summary><div class="evidence">
+      <p class="reason">The API accepted a value that was expected to be rejected with HTTP 200.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>200</dd></div>
+        <div><dt>Time</dt><dd>3 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+        <div><dt>Risk</dt><dd>MEDIUM</dd></div>
+        <div><dt>Confidence</dt><dd>MEDIUM</dd></div>
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Review the API contract and final state, then repeat with a control request. This signal needs confirmation.</p>
+      <details class="technical"><summary>Sanitized replay cURL</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">curl -X POST http\://127.0.0.1\:60426/api/users\?token\=%3CREDACTED%3E \
+  -H &#x27;Authorization: Bearer &lt;REDACTED&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  --data-raw &#x27;{&quot;email&quot;:&quot;qa@example.com&quot;,&quot;age&quot;:&quot;not-a-number&quot;,&quot;token&quot;:&quot;&lt;REDACTED&gt;&quot;}&#x27;</pre></details>
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>9285ebf40aa3d954</code></p><p>Check ID: <code>wrong-type:$.age</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = &quot;&quot;</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>empty:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.age = 0</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>numeric-boundary:$.age</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = whitespace-only string</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>whitespace:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.age = negative number</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>negative-number:$.age</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = 1024-character string</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>long-string:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.age = Number.MAX_SAFE_INTEGER</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>large-number:$.age</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = Unicode and invisible character</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>unicode:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.age = fractional number</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>boundary</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.age</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>fractional-number:$.age</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = safe SQL syntax probe</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>injection</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>sql-probe:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge pass">PASS</span> <span>$.email = object with $ne operator</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">The API rejected the check in a controlled way with HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Reject this input</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>injection</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> The expected response was observed for this check. Keep this case as a regression check; coverage remains limited to the executed requests.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>nosql-probe:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = safe path traversal probe</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>injection</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>path-probe:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = non-executable markup probe</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>injection</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>markup-probe:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = template expression probe</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>2 ms</dd></div>
+        <div><dt>Category</dt><dd>injection</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>template-probe:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>$.email = CRLF/newline probe</span><span class="http">HTTP 422</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 422.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>422</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>injection</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.email</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>4983c4148c2127eb</code></p><p>Check ID: <code>newline-probe:$.email</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>Content-Type header removed</span><span class="http">HTTP 201</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 201.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>201</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>protocol</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$headers.content-type</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>0e9fdb784969c859</code></p><p>Check ID: <code>content-type-missing:headers</code></p></details>
+    </div></details>
+<details class="check"><summary><span class="badge info">INFO</span> <span>unknown field $.__breakcurl_probe added</span><span class="http">HTTP 201</span></summary><div class="evidence">
+      <p class="reason">Observation without a strict oracle: HTTP 201.</p>
+      <dl class="facts">
+        <div><dt>Expected</dt><dd>Observe; no rejection rule asserted</dd></div>
+        <div><dt>HTTP</dt><dd>201</dd></div>
+        <div><dt>Time</dt><dd>1 ms</dd></div>
+        <div><dt>Category</dt><dd>structure</dd></div>
+        <div><dt>Field / selector</dt><dd><code>$.__breakcurl_probe</code></dd></div>
+
+
+      </dl>
+
+
+      <p class="action"><strong>Next action</strong> Compare this observation with the intended API behavior. An accepted input alone does not establish a defect.</p>
+
+      <details class="technical"><summary>Response metadata</summary><p>Structure fingerprint: <code>0e9fdb784969c859</code></p><p>Check ID: <code>unknown-field:$</code></p></details>
+    </div></details></section>
+<section class="limitations" aria-labelledby="limitations-title"><h2 id="limitations-title">Scope and limitations</h2><ul><li>Results apply only to the target, input, credentials, and requests used in this run. They are not an assessment of the entire API's security.</li><li>A response status or heuristic signal alone does not prove a vulnerability or the final business state. Confirm findings against the contract and server-side evidence.</li><li>API response bodies are not saved. Known credentials and sensitive values are redacted. Replay files contain sanitized requests; supply your own authorized test credentials before use.</li><li>Structure fingerprints are unavailable for truncated responses and transport failures. Equal fingerprints do not prove equal objects or authorized access.</li><li>Auth coverage is limited to the complete source declaration supplied by the operator. It assumes no authority in URL paths, transport, server-side sessions or other undeclared channels; the tool cannot verify that assumption. A strict result evaluates HTTP 401/403, not resource access or a completed operation.</li><li>IDOR was not tested: it requires two controlled identities and a private-object contract. Use the idor command. Injection probes are observations, not proof of exploitation.</li></ul></section>
+<footer>Generated by BreakCurl · Standalone report · No scripts or external resources</footer>
+</main></body></html>

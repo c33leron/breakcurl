@@ -8,3 +8,4 @@ breakcurl.config.json
 .env.*
 !.env.example
 .DS_Store
+work/.arena/

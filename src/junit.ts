@@ -1,5 +1,6 @@
 import { englishText } from "./i18n.js";
 import { redactText, redactUrl } from "./redact.js";
+import { hasWorkingBaseline, summarizeRun } from "./run-summary.js";
 import type { CaseResult, RunResult } from "./types.js";
 
 /**
@@ -13,7 +14,13 @@ export function formatJunitXml(
 ): string {
   const cases = result.cases;
   const failures = count(cases, "FAIL");
-  const errors = count(cases, "ERROR");
+  const outcome = summarizeRun(result);
+  const addRunError = outcome.exitCode === 2 && count(cases, "ERROR") === 0;
+  const runErrorDetail = hasWorkingBaseline(result)
+    ? `Requests attempted / planned: ${outcome.requestsAttempted} / ${outcome.requestsPlanned ?? "unknown"}.`
+    : `Baseline HTTP ${result.baseline.response.status}.`;
+  const errors = count(cases, "ERROR") + Number(addRunError);
+  const total = cases.length + Number(addRunError);
   const skipped = count(cases, "WARN");
   const time = (
     cases.reduce((total, item) => total + item.response.latencyMs, 0) / 1000
@@ -23,14 +30,19 @@ export function formatJunitXml(
     `${request.method} ${redactUrl(request.url, knownSecrets)}`,
     knownSecrets,
   );
-  const testcases = cases
-    .map((item) => formatTestcase(item, classname, knownSecrets))
-    .join("\n");
+  const testcases = [
+    ...cases.map((item) => formatTestcase(item, classname, knownSecrets)),
+    ...(addRunError
+      ? [
+          `    <testcase name="[run] Run prerequisites and completion" classname="${escapeXml(classname)}" time="0"><error type="run-incomplete" message="${escapeXml(englishText(outcome.title))}">${escapeXml(englishText(outcome.explanation))} ${escapeXml(runErrorDetail)} This is a run control, not an additional HTTP request.</error></testcase>`,
+        ]
+      : []),
+  ].join("\n");
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<testsuites name="breakcurl" tests="${cases.length}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${time}">`,
-    `  <testsuite name="breakcurl ${escapeXml(result.profile ?? "quick")}" tests="${cases.length}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${time}">`,
+    `<testsuites name="breakcurl" tests="${total}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${time}">`,
+    `  <testsuite name="breakcurl ${escapeXml(result.profile ?? "quick")}" tests="${total}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${time}">`,
     testcases,
     "  </testsuite>",
     "</testsuites>",

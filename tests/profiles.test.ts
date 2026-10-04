@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { parseAuthContract } from "../src/auth-contract.js";
+import { classifyCase } from "../src/classify.js";
 import { englishText } from "../src/i18n.js";
 import {
   generateChecks,
@@ -58,7 +60,10 @@ describe("profile-driven checks", () => {
       (item) => item.kind === "auth-invalid",
     );
 
-    expect(missing?.expectation).toBe("auth-reject");
+    expect(missing?.expectation).toBe("observe");
+    expect(generated.notes.map(englishText).join(" ")).toContain(
+      "--expect-auth alone does not establish complete auth coverage",
+    );
     expect(missing?.headers).not.toHaveProperty("Authorization");
     expect(missing?.headers).not.toHaveProperty("Cookie");
     expect(missing?.url).not.toContain("access_token");
@@ -153,5 +158,149 @@ describe("profile-driven checks", () => {
     expect(() =>
       generateChecks(request, { profile: "full", maxCases: 201 }),
     ).toThrow("from 1 to 200");
+  });
+
+  it("reserves default quick slots for auth and keeps body checks within 15", () => {
+    const generated = generateChecks(request, {
+      profile: "quick",
+      maxCases: 15,
+    });
+    expect(generated.cases).toHaveLength(15);
+    expect(generated.cases.slice(0, 2).map((item) => item.kind)).toEqual([
+      "auth-missing",
+      "auth-invalid",
+    ]);
+    expect(
+      generated.cases
+        .slice(2)
+        .every((item) => item.category !== "authentication"),
+    ).toBe(true);
+    expect(generated.cases.slice(2).some((item) => item.path === "$.age")).toBe(
+      true,
+    );
+  });
+
+  it("keeps explicit custom checks and names auth coverage omitted by small budgets", () => {
+    const single = generateChecks(request, { profile: "quick", maxCases: 1 });
+    expect(single.cases.map((item) => item.kind)).toEqual(["auth-missing"]);
+    expect(single.notes.map(englishText).join(" ")).toContain(
+      "selected 1 of 2 probes; skipped by --max-cases: auth-invalid",
+    );
+    const custom = generateChecks(request, {
+      profile: "quick",
+      maxCases: 1,
+      customCases: [
+        { name: "age explicit", path: "$.age", operation: "set", value: 0 },
+      ],
+    });
+    expect(custom.cases.map((item) => item.kind)).toEqual(["custom-set"]);
+    expect(custom.notes.map(englishText).join(" ")).toContain(
+      "selected 0 of 2 probes; skipped by --max-cases: auth-missing, auth-invalid",
+    );
+  });
+
+  it("keeps no-contract auth successes as candidates even with expectAuth", () => {
+    const auth = generateChecks(request, {
+      profile: "quick",
+      maxCases: 2,
+      expectAuth: true,
+    }).cases[0];
+    if (!auth) throw new Error("Missing auth probe");
+    expect(auth.expectation).toBe("observe");
+    const result = classifyCase(auth, {
+      status: 200,
+      body: '{"created":true}',
+      headers: { "content-type": "application/json" },
+      latencyMs: 1,
+      timedOut: false,
+    });
+    expect(result.classification).toBe("WARN");
+  });
+
+  it("applies strict expectations only with the complete source declaration", () => {
+    const authContract = parseAuthContract({
+      complete: true,
+      sources: [
+        { in: "header", name: "Authorization" },
+        { in: "header", name: "Cookie" },
+        { in: "query", name: "access_token" },
+      ],
+    });
+    const full = generateChecks(request, {
+      profile: "quick",
+      maxCases: 2,
+      expectAuth: true,
+      authContract,
+    });
+    expect(full.cases.every((item) => item.expectation === "auth-reject")).toBe(
+      true,
+    );
+    expect(full.notes.map(englishText).join(" ")).toContain(
+      "the tool cannot verify that assumption",
+    );
+    const exploratory = generateChecks(request, {
+      profile: "quick",
+      maxCases: 2,
+      authContract,
+    });
+    expect(
+      exploratory.cases.every((item) => item.expectation === "observe"),
+    ).toBe(true);
+    const negative = generateChecks(request, {
+      profile: "negative",
+      maxCases: 10,
+      authContract,
+    });
+    expect(
+      negative.cases.some((item) => item.category === "authentication"),
+    ).toBe(false);
+  });
+
+  it("skips partial probes while undeclared obvious body credentials remain", () => {
+    const bodyAuth = {
+      ...request,
+      body: { ...request.body, access_token: "body-fixture-secret" },
+    };
+    const skipped = generateChecks(bodyAuth, {
+      profile: "quick",
+      maxCases: 15,
+      expectAuth: true,
+    });
+    expect(
+      skipped.cases.some((item) => item.category === "authentication"),
+    ).toBe(false);
+    expect(skipped.notes.map(englishText).join(" ")).toContain(
+      "possible credentials remain in the JSON body",
+    );
+    const selected = generateChecks(bodyAuth, {
+      profile: "quick",
+      maxCases: 2,
+      expectAuth: true,
+      authBodyPaths: ["$.access_token"],
+    });
+    expect(selected.cases[0]?.body).not.toHaveProperty("access_token");
+    expect(selected.cases.every((item) => item.expectation === "observe")).toBe(
+      true,
+    );
+  });
+
+  it("supports body-only convenience probes without promoting them to a complete contract", () => {
+    const bodyAuth = {
+      ...request,
+      url: "https://api.example.test/items",
+      headers: {},
+      body: { ticket: "opaque-ticket", amount: 1 },
+    };
+    const selected = generateChecks(bodyAuth, {
+      profile: "quick",
+      maxCases: 2,
+      expectAuth: true,
+      authBodyPaths: ["$.ticket"],
+    });
+    expect(selected.cases[0]?.body).toEqual({ amount: 1 });
+    expect(selected.cases[1]?.body.ticket).toBe("BREAKCURL_INVALID_CREDENTIAL");
+    expect(selected.cases.every((item) => item.expectation === "observe")).toBe(
+      true,
+    );
   });
 });

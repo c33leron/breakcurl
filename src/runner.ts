@@ -34,28 +34,35 @@ export async function sendRequest(
     if (!isUnsafeTransportHeader(name)) headers.set(name, value);
   }
 
+  let status = 0;
+  let responseHeaders: Record<string, string> = {};
   try {
     const response = await fetch(request.url, {
       method: request.method,
       headers,
-      body: JSON.stringify(request.body),
+      ...(request.method === "GET"
+        ? {}
+        : { body: JSON.stringify(request.body) }),
       signal: controller.signal,
       redirect: "manual",
     });
 
+    status = response.status;
+    responseHeaders = Object.fromEntries(response.headers.entries());
+    const bodyResult = await readResponseBody(response);
     return {
-      status: response.status,
+      status,
       latencyMs: Math.round(performance.now() - startedAt),
-      headers: Object.fromEntries(response.headers.entries()),
-      body: await readResponseBody(response),
+      headers: responseHeaders,
+      ...bodyResult,
       timedOut: false,
     };
   } catch {
     const timedOut = controller.signal.aborted;
     return {
-      status: 0,
+      status,
       latencyMs: Math.round(performance.now() - startedAt),
-      headers: {},
+      headers: responseHeaders,
       body: "",
       timedOut,
       connectionError: timedOut ? "Request timed out." : "Connection failed.",
@@ -65,15 +72,19 @@ export async function sendRequest(
   }
 }
 
-async function readResponseBody(response: Response): Promise<string> {
-  if (!response.body) return "";
+async function readResponseBody(
+  response: Response,
+): Promise<{ body: string; bodyTruncated: boolean }> {
+  if (!response.body) return { body: "", bodyTruncated: false };
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let remaining = MAX_RESPONSE_BYTES;
+  let bodyTruncated = false;
 
   try {
-    while (remaining > 0) {
+    // Read once beyond an exact-size body to distinguish EOF from truncation.
+    while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -83,13 +94,22 @@ async function readResponseBody(response: Response): Promise<string> {
       } else {
         chunks.push(value.slice(0, remaining));
         remaining = 0;
+        bodyTruncated = true;
+        break;
       }
     }
   } finally {
-    if (remaining === 0) await reader.cancel().catch(() => undefined);
+    if (bodyTruncated) await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 
-  return new TextDecoder().decode(concatenate(chunks));
+  return {
+    // Do not replace a UTF-8 character cut at the cap with a misleading glyph.
+    body: new TextDecoder().decode(concatenate(chunks), {
+      stream: bodyTruncated,
+    }),
+    bodyTruncated,
+  };
 }
 
 function concatenate(chunks: Uint8Array[]): Uint8Array {

@@ -1,3 +1,5 @@
+import type { AuthContract } from "./auth-contract.js";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
@@ -9,7 +11,7 @@ export interface LocalizedText {
 }
 export type TranslatableText = string | LocalizedText;
 
-export type HttpMethod = "POST" | "PUT" | "PATCH" | "DELETE";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface ParsedCurl {
   method: HttpMethod;
@@ -73,6 +75,14 @@ export interface HttpResult {
   latencyMs: number;
   headers: Record<string, string>;
   body: string;
+  /** Intentionally discarded after an in-memory oracle, not transport truncation. */
+  bodyOmitted?: boolean;
+  /**
+   * Runner: true when bytes beyond its cap were observed; false after EOF
+   * within the cap. Omitted on read failures (see transport flags), and
+   * optional for compatibility with callers supplying complete bodies.
+   */
+  bodyTruncated?: boolean;
   timedOut: boolean;
   connectionError?: string;
 }
@@ -103,6 +113,10 @@ export interface CaseResult {
 export interface BaselineResult {
   request: ParsedCurl;
   response: HttpResult;
+  assessment?: Pick<
+    CaseResult,
+    "classification" | "reason" | "severity" | "confidence" | "securitySignals"
+  >;
 }
 
 export interface RunResult {
@@ -111,6 +125,9 @@ export interface RunResult {
   profile?: CheckProfile;
   notes?: TranslatableText[];
   language?: Language;
+  mode?: "checks" | "idor";
+  plannedRequests?: number;
+  completedRequests?: number;
 }
 
 export interface RunOptions {
@@ -133,6 +150,8 @@ export interface CheckGenerationOptions {
   excludePaths?: string[];
   customCases?: CustomCaseDefinition[];
   expectAuth?: boolean;
+  authBodyPaths?: string[];
+  authContract?: AuthContract;
   language?: Language;
 }
 

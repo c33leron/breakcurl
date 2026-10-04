@@ -2,7 +2,7 @@ import { parse as tokenize } from "shell-quote";
 import { message } from "./i18n.js";
 import type { HttpMethod, JsonObject, Language, ParsedCurl } from "./types.js";
 
-const METHODS = new Set<HttpMethod>(["POST", "PUT", "PATCH", "DELETE"]);
+const METHODS = new Set<HttpMethod>(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const DATA_OPTIONS = new Set([
   "-d",
   "--data",
@@ -113,8 +113,8 @@ export function parseCurl(
         throw new Error(
           message(
             language,
-            "Only POST, PUT, PATCH, and DELETE methods are supported.",
-            "Поддерживаются только методы POST, PUT, PATCH и DELETE.",
+            "Only GET, POST, PUT, PATCH, and DELETE methods are supported.",
+            "Поддерживаются только методы GET, POST, PUT, PATCH и DELETE.",
           ),
         );
       }
@@ -152,6 +152,17 @@ export function parseCurl(
           language,
           `HTTP header ${name} contains control characters.`,
           `HTTP-заголовок ${name} содержит управляющие символы.`,
+        );
+      }
+      if (
+        Object.keys(headers).some(
+          (existing) => existing.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        throw localizedError(
+          language,
+          `Duplicate HTTP header: ${name}.`,
+          `Повторяющийся HTTP-заголовок: ${name}.`,
         );
       }
       headers[name] = headerValue;
@@ -267,7 +278,25 @@ export function parseCurl(
     url = parseHttpUrl(argument, language);
   }
 
-  if (!url || bodyText === undefined) {
+  if (!url) {
+    throw localizedError(
+      language,
+      "cURL must contain one URL.",
+      "cURL должен содержать один URL.",
+    );
+  }
+  const resolvedMethod = method ?? (bodyText === undefined ? "GET" : "POST");
+  if (resolvedMethod === "GET") {
+    if (bodyText !== undefined) {
+      throw localizedError(
+        language,
+        "GET requests with a body are not supported.",
+        "GET с телом запроса не поддерживается.",
+      );
+    }
+    return { method: "GET", url, headers, body: {} };
+  }
+  if (bodyText === undefined) {
     throw localizedError(
       language,
       "cURL must contain one URL and one JSON body.",
@@ -292,7 +321,7 @@ export function parseCurl(
       "В корне JSON-тела должен находиться объект.",
     );
 
-  return { method: method ?? "POST", url, headers, body: parsedBody };
+  return { method: resolvedMethod, url, headers, body: parsedBody };
 }
 
 function rejectCommandSubstitution(input: string, language: Language): void {
@@ -357,6 +386,13 @@ function parseHttpUrl(value: string, language: Language): string {
       language,
       "Only HTTP and HTTPS URLs are supported.",
       "Поддерживаются только URL с HTTP или HTTPS.",
+    );
+  }
+  if (value.includes("#")) {
+    throw localizedError(
+      language,
+      "URL fragments are not sent in HTTP requests. Remove the fragment before testing.",
+      "Часть URL после # не отправляется в HTTP-запросе. Удалите ее перед проверкой.",
     );
   }
   return value;

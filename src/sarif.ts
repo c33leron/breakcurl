@@ -1,5 +1,6 @@
 import { englishText } from "./i18n.js";
 import { redactText, redactUrl } from "./redact.js";
+import { hasWorkingBaseline, summarizeRun } from "./run-summary.js";
 import type { CaseResult, RunResult } from "./types.js";
 import { VERSION } from "./version.js";
 
@@ -18,8 +19,14 @@ interface RuleMetadata {
  * "authentication-not-enforced").
  */
 const RULES: Record<string, RuleMetadata> = {
+  "idor-private-object-disclosure": {
+    short:
+      "A controlled identity received another private object's ID and canary contrary to the declared isolation contract.",
+    cwe: "CWE-639",
+  },
   "authentication-not-enforced": {
-    short: "The endpoint responds successfully without valid credentials.",
+    short:
+      "A declared authentication rejection contract was not observed; resource access requires separate evidence.",
     cwe: "CWE-306",
   },
   "internal-details": {
@@ -75,6 +82,10 @@ export function formatSarif(
   );
   const ruleIds = [...new Set(findings.map((item) => ruleIdFor(item)))];
   const baselineUrl = result.baseline.request.url;
+  const outcome = summarizeRun(result);
+  const runErrorDetail = hasWorkingBaseline(result)
+    ? `Requests attempted / planned: ${outcome.requestsAttempted} / ${outcome.requestsPlanned ?? "unknown"}.`
+    : `Baseline HTTP ${result.baseline.response.status}.`;
 
   return `${JSON.stringify(
     {
@@ -82,6 +93,23 @@ export function formatSarif(
       version: "2.1.0",
       runs: [
         {
+          invocations: [
+            {
+              executionSuccessful: outcome.exitCode !== 2,
+              ...(outcome.exitCode === 2
+                ? {
+                    toolExecutionNotifications: [
+                      {
+                        level: "error",
+                        message: {
+                          text: `${englishText(outcome.explanation)} ${runErrorDetail}`,
+                        },
+                      },
+                    ],
+                  }
+                : {}),
+            },
+          ],
           tool: {
             driver: {
               name: "BreakCurl",
@@ -101,8 +129,14 @@ export function formatSarif(
   )}\n`;
 }
 
+function primarySignal(item: CaseResult) {
+  return item.securitySignals?.find(
+    (signal) => signal.id !== "technology-header",
+  );
+}
+
 function ruleIdFor(item: CaseResult): string {
-  const signal = item.securitySignals?.[0]?.id;
+  const signal = primarySignal(item)?.id;
   if (signal) return signal;
   return `${item.mutation.category ?? "structure"}-finding`;
 }
@@ -139,7 +173,7 @@ function formatResult(
   );
   const reason = redactText(englishText(item.reason), knownSecrets);
   const url = redactUrl(item.mutation.url ?? baselineUrl, knownSecrets);
-  const signal = item.securitySignals?.[0];
+  const signal = primarySignal(item);
   return {
     ruleId: ruleIdFor(item),
     level: levelFor(item.classification),
@@ -151,7 +185,9 @@ function formatResult(
         },
       },
     ],
-    partialFingerprints: { "breakcurlCaseId/v1": item.mutation.id },
+    partialFingerprints: {
+      "breakcurlCaseId/v1": redactText(item.mutation.id, knownSecrets),
+    },
     properties: {
       "breakcurl/classification": item.classification,
       "breakcurl/category": item.mutation.category ?? "structure",

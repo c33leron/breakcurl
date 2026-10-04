@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { type AuthContract, parseAuthContract } from "./auth-contract.js";
 import { message } from "./i18n.js";
 import type {
   CheckExpectation,
@@ -14,6 +15,8 @@ export interface BreakCurlConfig {
   onlyPaths?: string[];
   excludePaths?: string[];
   expectAuth?: boolean;
+  authBodyPaths?: string[];
+  authContract?: AuthContract;
   customCases?: CustomCaseDefinition[];
 }
 
@@ -36,6 +39,8 @@ const CONFIG_KEYS = new Set([
   "onlyPaths",
   "excludePaths",
   "expectAuth",
+  "authBodyPaths",
+  "authContract",
   "customCases",
 ]);
 
@@ -137,6 +142,16 @@ export async function loadConfig(
       );
     }
     config.expectAuth = raw.expectAuth;
+  }
+  if (raw.authBodyPaths !== undefined) {
+    config.authBodyPaths = stringArray(
+      raw.authBodyPaths,
+      "authBodyPaths",
+      language,
+    );
+  }
+  if (raw.authContract !== undefined) {
+    config.authContract = parseAuthContract(raw.authContract, language);
   }
   if (raw.customCases !== undefined) {
     if (!Array.isArray(raw.customCases)) {
