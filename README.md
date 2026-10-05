@@ -47,7 +47,7 @@ npx breakcurl
 
 1. Open `DevTools → Network`, select a working request.
 2. Choose `Copy → Copy as cURL (bash)`.
-3. Paste into the terminal, press `Enter` on an empty line.
+3. Paste into the terminal and press `Enter` once.
 4. Review the target and budget, confirm with `y`. Read results in the terminal and `breakcurl-output/`.
 
 Confirm npm's first-run install prompt with `y`. Use only authorized DEV/local environments and disposable data.
@@ -148,6 +148,8 @@ breakcurl-output/
     └── fail-age-null.curl   sanitized replay commands for FAIL/WARN
 ```
 
+The terminal prints a `file://` link to the HTML report. Click it if your terminal supports links, or paste it into your browser. Demo runs also link to `demo.html`, which brings all four examples together.
+
 ```bash
 npx breakcurl --junit --sarif
 ```
@@ -221,7 +223,7 @@ npx breakcurl --help
 
 ## Language
 
-English is the default; use `npx breakcurl --lang ru` or `export BREAKCURL_LANG=ru`. HTML and Markdown follow the selected language. JSON, JUnit, and SARIF keep stable English machine-readable fields.
+English is the default. Run `npx breakcurl --lang ru` once in your terminal; future runs remember Russian. Use `--lang en` to switch back. An explicit `--lang` or `BREAKCURL_LANG` overrides the saved choice; piped and CI runs do not save changes. HTML and Markdown follow the selected language. JSON, JUnit, and SARIF keep stable English machine-readable fields.
 
 ## FAQ
 

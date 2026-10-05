@@ -1,0 +1,17 @@
+curl --url 'https://api.example.test/api/v1/backend-service/v1/vacancies/33333333-3333-4333-8333-333333333333' \
+  -X 'PUT' \
+  -H 'accept: */*' \
+  -H 'accept-language: ru,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7,zh-TW;q=0.6,zh;q=0.5' \
+  -H 'authorization: Bearer BREAKCURL_SYNTHETIC_TOKEN' \
+  -H 'content-type: application/json' \
+  -H 'origin: https://api.example.test' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://api.example.test/vacancies/33333333-3333-4333-8333-333333333333/edit' \
+  -H 'sec-ch-ua: "Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'sec-ch-ua-platform: "macOS"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: same-origin' \
+  -H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36' \
+  --data-raw '{"name":"дизайнер","candidatePersona":"","tasksDescription":"делать дизайн","companyDescription":"хорошая компания","benefitsDescription":"","successCriteriaSummary":"","grade":"JUNIOR","experience":1,"skills":[],"tagIds":[],"grader":"","hiringRuleId":"11111111-1111-4111-8111-111111111111"}'

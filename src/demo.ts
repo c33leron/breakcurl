@@ -12,6 +12,7 @@ import {
   printBanner,
   printBaseline,
   printCaseLine,
+  printFileLink,
   printKeyValue,
   printResultSummary,
   printRunOutcome,
@@ -290,7 +291,7 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
       `<!doctype html><html lang="${ru ? "ru" : "en"}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${title}</title><style>body{font:17px/1.6 system-ui;background:#f4f6f8;color:#162436;max-width:920px;margin:60px auto;padding:0 24px}h1{line-height:1.2}article{background:white;border:1px solid #d9e1e8;border-radius:14px;padding:24px;margin:18px 0}a{color:#07559a;font-size:22px;font-weight:650}p{max-width:75ch}.label{font-size:13px;letter-spacing:.12em;color:#537080}</style><p class="label">BREAKCURL / LOCAL DEMO</p><h1>${title}</h1><p>${ru ? "Четыре реальных прогона на одноразовом сервере. Уязвимости внесены намеренно, данные синтетические. Сервер уже остановлен; отчеты открываются без сети." : "Four real runs against a disposable server. Vulnerabilities are intentional; all data is synthetic. The server has stopped; reports work offline."}</p>${examples.map(([url, name, explanation]) => `<article><a href="${url}">${name}</a><p>${explanation}</p></article>`).join("")}<p>${ru ? "Это учебный стенд, а не проверка вашего API. Для своего запроса запустите npx breakcurl." : "This is a fixture demonstration, not an assessment of your API. Run npx breakcurl with your own request."}</p></html>`,
       "utf8",
     );
-    printKeyValue(
+    printFileLink(
       message(options.language, "open demo", "открыть демо"),
       demoPath,
       options.color,
@@ -339,7 +340,7 @@ function printDemo(
     );
   printRunOutcome(result, options.color, options.language);
   printResultSummary(result.cases, options.color);
-  printKeyValue(
+  printFileLink(
     message(options.language, "browser", "браузер"),
     files.htmlReportPath,
     options.color,

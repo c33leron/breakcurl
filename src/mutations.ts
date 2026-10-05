@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   buildDeclaredAuthProbes,
   hasPossibleBodyCredentials,
@@ -178,7 +179,10 @@ export function generateChecks(
   const automaticCases = interleave(perField);
   if (
     request.method !== "GET" &&
-    (options.profile === "security" || options.profile === "full")
+    (options.profile === "security" || options.profile === "full") &&
+    Object.keys(request.headers).some(
+      (name) => name.toLowerCase() === "content-type",
+    )
   ) {
     automaticCases.push(createContentTypeCase(request));
   }
@@ -403,7 +407,13 @@ function mutationsForField(
     templates.push(...securityTemplates(field.value));
   }
 
-  return templates.map((template) => createCase(body, field, template));
+  return templates
+    .filter(
+      (template) =>
+        template.kind === "remove" ||
+        !isDeepStrictEqual(template.value, field.value),
+    )
+    .map((template) => createCase(body, field, template));
 }
 
 function negativeTemplates(value: JsonValue): CaseTemplate[] {

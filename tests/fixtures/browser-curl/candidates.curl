@@ -1,0 +1,17 @@
+curl --url 'https://api.example.test/api/v1/backend-service/v1/candidates/33333333-3333-4333-8333-333333333333' \
+  -X 'PUT' \
+  -H 'accept: */*' \
+  -H 'accept-language: ru,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7,zh-TW;q=0.6,zh;q=0.5' \
+  -H 'authorization: Bearer BREAKCURL_SYNTHETIC_TOKEN' \
+  -H 'content-type: application/json' \
+  -H 'origin: https://api.example.test' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://api.example.test/candidates/33333333-3333-4333-8333-333333333333/edit' \
+  -H 'sec-ch-ua: "Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'sec-ch-ua-platform: "macOS"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: same-origin' \
+  -H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36' \
+  --data-raw $'{"hobby":"бегом, технической литературой и open-source проектами","aboutMe":"QA Automation Engineer с 4-летним опытом тестирования web-приложений и REST API. Работаю с Playwright, TypeScript, SQL и CI/CD. Строю проверки от контракта и бизнес-инвариантов, разбираю логи и стабилизирую flaky-сценарии.","cvFile":"22222222-2222-4222-8222-222222222222","skills":[],"experienceDescription":"апрель 2023 - Present\\nQA Automation Engineer | Example Systems\\n\\nResponsibilities:\\n• Поддерживал более 180 API- и UI-тестов на Playwright и TypeScript.\\n• Проверял RBAC, tenant isolation, очереди RabbitMQ и асинхронные процессы.\\n• Внедрил отчеты Allure и обязательные проверки контрактов в CI.\\n\\nAchievements:\\n• Сократил длительность regression run с 58 до 31 минуты за счет изоляции данных.\\n\\nиюнь 2021 - март 2023\\nQA Engineer | Example Digital\\n\\nResponsibilities:\\n• Тестировал B2B SaaS: UI, API, PostgreSQL и интеграции.\\n• Локализовал дефекты по request ID и логам сервисов.\\n• Подготовил smoke-набор для релизов.\\n\\nAchievements:\\n• Сократил ручную проверку на 40%.","education":"Example University | прикладная информатика | Bachelor\'s degree | Formal education | 2021","grade":"MIDDLE","githubLink":"https://github.com/example","linkedIn":"https://linkedin.com/in/example","phone":"+7 900 000-00-00","email":"qa@example.test","patronymic":"Тестовый","firstName":"Тест","lastName":"Тестовый"}'
