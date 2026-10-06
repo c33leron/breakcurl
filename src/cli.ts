@@ -29,6 +29,7 @@ import {
   parseInlineCustomCase,
   requestForCase,
 } from "./mutations.js";
+import { openReport, shouldOpenReport } from "./open-report.js";
 import { readPastedCurl } from "./paste.js";
 import {
   loadLanguagePreference,
@@ -68,6 +69,7 @@ interface CliOptions {
   allowMutation?: boolean;
   output: string;
   color: boolean;
+  open: boolean;
   security?: boolean;
   expectAuth?: boolean;
   authBodyPath: string[];
@@ -283,6 +285,13 @@ const program = new Command()
     "breakcurl-output",
   )
   .option("--no-color", m("disable colored output", "отключить цветной вывод"))
+  .option(
+    "--no-open",
+    m(
+      "do not open the HTML report in a browser after an interactive run",
+      "не открывать HTML-отчет в браузере после интерактивного запуска",
+    ),
+  )
   .action(async (file: string | undefined, options: CliOptions) => {
     const language = options.lang;
     const config = options.config
@@ -456,6 +465,7 @@ const program = new Command()
       language,
       generated.htmlReportPath,
     );
+    await openCompletedReport(generated.htmlReportPath, options);
     process.exitCode = exitCodeForRun(result);
     if (!hasWorkingBaseline(result)) {
       const note = result.notes?.at(-1);
@@ -580,6 +590,7 @@ program
       language,
       files.htmlReportPath,
     );
+    await openCompletedReport(files.htmlReportPath, options);
     process.exitCode = exitCodeForRun(result);
   });
 
@@ -618,7 +629,34 @@ program
       ),
     });
     process.exitCode = success ? 0 : 2;
+    await openCompletedReport(join(options.output, "demo.html"), options);
   });
+
+async function openCompletedReport(
+  filePath: string,
+  options: CliOptions,
+): Promise<void> {
+  if (
+    !shouldOpenReport({
+      enabled: options.open,
+      stdinIsTTY: input.isTTY,
+      stdoutIsTTY: output.isTTY,
+      ci: process.env.CI,
+    })
+  )
+    return;
+  if (!(await openReport(filePath))) {
+    printNotice(
+      message(options.lang, "REPORT SAVED", "ОТЧЕТ СОХРАНЕН"),
+      message(
+        options.lang,
+        "Could not open the browser. Use the report link above.",
+        "Не удалось открыть браузер. Воспользуйтесь ссылкой на отчет выше.",
+      ),
+      options.color,
+    );
+  }
+}
 
 program.hook("preAction", async () => {
   const language = program.opts<CliOptions>().lang;

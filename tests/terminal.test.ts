@@ -38,13 +38,15 @@ describe("terminal report links", () => {
       expect(url).toContain("%23");
       expect(url).toContain("%25");
       expect(line).not.toContain("\u001b]8");
-      if (!color) expect(line).not.toContain("\u001b");
+      expect(line).not.toContain("\u001b");
     },
   );
 
   it("wraps a visible file URL in a balanced hyperlink on an interactive terminal", () => {
     vi.stubEnv("TERM", "xterm-256color");
     const line = captureLink(true, true, "report.html");
+    expect(line).toContain("\u001b[36m");
+    expect(line).toContain("\u001b[4m");
     const link = line.match(
       // biome-ignore lint/suspicious/noControlCharactersInRegex: verify the OSC 8 protocol boundaries
       /\u001b\]8;;([^\u001b]+)\u001b\\([^\u001b]+)\u001b\]8;;\u001b\\/,
@@ -59,6 +61,7 @@ describe("terminal report links", () => {
     const line = captureLink(true, true, "report.html");
     expect(line).toContain("file://");
     expect(line).not.toContain("\u001b]8");
+    expect(line).not.toContain("\u001b");
   });
 
   it("encodes control characters in paths instead of letting them control the terminal", () => {
