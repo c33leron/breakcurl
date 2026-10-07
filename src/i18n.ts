@@ -26,10 +26,21 @@ export function isLanguage(value: string): value is Language {
 export function detectInitialLanguage(
   args: string[],
   environmentLanguage: string | undefined,
+  savedLanguage?: Language,
 ): Language {
-  let candidate = environmentLanguage;
+  const candidate = explicitLanguageArgument(args);
+  if (candidate !== undefined && isLanguage(candidate)) return candidate;
+  if (environmentLanguage !== undefined && isLanguage(environmentLanguage)) {
+    return environmentLanguage;
+  }
+  return savedLanguage ?? "en";
+}
+
+export function explicitLanguageArgument(args: string[]): string | undefined {
+  let candidate: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
+    if (argument === "--") break;
     if (argument === "--lang") {
       candidate = args[index + 1];
       index += 1;
@@ -39,5 +50,5 @@ export function detectInitialLanguage(
       candidate = argument.slice("--lang=".length);
     }
   }
-  return candidate === "ru" ? "ru" : "en";
+  return candidate;
 }

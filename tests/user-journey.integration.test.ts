@@ -372,6 +372,7 @@ describe("first-user CLI acceptance against a stateful API", () => {
 function runCli(args: string[], cwd: string): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
+      env: { ...process.env, BREAKCURL_LANG: "en" },
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
     });

@@ -10,7 +10,7 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { VERSION } from "../src/version.js";
 
@@ -112,7 +112,7 @@ describe("installed-style CLI flow", () => {
   it("runs from a file, returns 1 for FAIL, and never exposes the canary", async () => {
     const directory = await temporaryDirectory();
     const inputFile = join(directory, "request.curl");
-    const outputDirectory = join(directory, "output");
+    const outputDirectory = join(directory, "output with spaces #100%");
     await writeFile(
       inputFile,
       workingCurl(`${origin}/ok?token=${CANARY}`),
@@ -133,6 +133,10 @@ describe("installed-style CLI flow", () => {
     expect(result.stdout).toContain("PASS");
     expect(result.stdout).toContain("WARN");
     expect(result.stdout).toContain("FAIL");
+    expect(result.stdout).toContain(
+      pathToFileURL(join(outputDirectory, "report.html")).href,
+    );
+    expect(result.stdout).not.toContain("\u001b");
     expect(`${result.stdout}\n${result.stderr}\n${artifacts}`).not.toContain(
       CANARY,
     );
@@ -562,6 +566,7 @@ async function runCli(
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
+      env: { ...process.env, BREAKCURL_LANG: "en" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";

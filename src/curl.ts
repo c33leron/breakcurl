@@ -1,5 +1,6 @@
 import { parse as tokenize } from "shell-quote";
 import { message } from "./i18n.js";
+import { normalizeShellInput } from "./shell-input.js";
 import type { HttpMethod, JsonObject, Language, ParsedCurl } from "./types.js";
 
 const METHODS = new Set<HttpMethod>(["GET", "POST", "PUT", "PATCH", "DELETE"]);
@@ -43,11 +44,11 @@ export function parseCurl(
     );
   }
 
-  rejectCommandSubstitution(input, language);
+  const normalized = normalizeShellInput(input, language);
 
   let tokens: ReturnType<typeof tokenize>;
   try {
-    tokens = tokenize(input.replace(/\\\r?\n/g, " ").trim(), (name) => ({
+    tokens = tokenize(normalized, (name) => ({
       shellVariable: name,
     }));
   } catch {
@@ -147,7 +148,10 @@ export function parseCurl(
           `Некорректное имя HTTP-заголовка: ${name}`,
         );
       }
-      if (/[\0\r\n]/.test(headerValue)) {
+      // HTAB is valid HTTP whitespace; other control characters are not.
+      // Validate before trimming so encoded CR/LF at either edge cannot vanish.
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: reject unsafe HTTP control characters
+      if (/[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)) {
         throw localizedError(
           language,
           `HTTP header ${name} contains control characters.`,
@@ -184,7 +188,8 @@ export function parseCurl(
           "Cookie-файлы не поддерживаются.",
         );
       }
-      if (/[\0\r\n]/.test(value)) {
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: reject unsafe HTTP control characters
+      if (/[\u0000-\u0008\u000a-\u001f\u007f]/.test(value)) {
         throw localizedError(
           language,
           "Cookie contains control characters.",
@@ -322,52 +327,6 @@ export function parseCurl(
     );
 
   return { method: resolvedMethod, url, headers, body: parsedBody };
-}
-
-function rejectCommandSubstitution(input: string, language: Language): void {
-  let quote: "single" | "double" | undefined;
-  let escaped = false;
-
-  for (let index = 0; index < input.length; index += 1) {
-    const character = input[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === "\\" && quote !== "single") {
-      escaped = true;
-      continue;
-    }
-    if (character === "'" && quote !== "double") {
-      quote = quote === "single" ? undefined : "single";
-      continue;
-    }
-    if (character === '"' && quote !== "single") {
-      quote = quote === "double" ? undefined : "double";
-      continue;
-    }
-    if (quote !== "single" && character === "`") {
-      throw localizedError(
-        language,
-        "Command substitution is not supported.",
-        "Подстановка команд не поддерживается.",
-      );
-    }
-    if (quote !== "single" && character === "$" && input[index + 1] === "(") {
-      throw localizedError(
-        language,
-        "Command substitution is not supported.",
-        "Подстановка команд не поддерживается.",
-      );
-    }
-  }
-
-  if (quote || escaped)
-    throw localizedError(
-      language,
-      "cURL contains mismatched quotes.",
-      "В cURL некорректно расставлены кавычки.",
-    );
 }
 
 function parseHttpUrl(value: string, language: Language): string {

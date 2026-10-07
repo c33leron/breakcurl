@@ -29,12 +29,20 @@ import {
   parseInlineCustomCase,
   requestForCase,
 } from "./mutations.js";
+import { openReport, shouldOpenReport } from "./open-report.js";
+import { readPastedCurl } from "./paste.js";
+import {
+  loadLanguagePreference,
+  saveLanguagePreference,
+  shouldPersistLanguagePreference,
+} from "./preferences.js";
 import { collectSensitiveValues, redactText, redactUrl } from "./redact.js";
 import { writeReport } from "./report.js";
 import {
   printBanner,
   printBaseline,
   printCaseLine,
+  printFileLink,
   printKeyValue,
   printNotice,
   printResultSummary,
@@ -61,6 +69,7 @@ interface CliOptions {
   allowMutation?: boolean;
   output: string;
   color: boolean;
+  open: boolean;
   security?: boolean;
   expectAuth?: boolean;
   authBodyPath: string[];
@@ -86,6 +95,7 @@ let outputSecrets: string[] = [];
 const initialLanguage = detectInitialLanguage(
   process.argv.slice(2),
   process.env.BREAKCURL_LANG,
+  await loadLanguagePreference(),
 );
 const m = (en: string, ru: string): string => message(initialLanguage, en, ru);
 const collectValue = (value: string, previous: string[]): string[] => [
@@ -142,7 +152,10 @@ const program = new Command()
   )
   .option(
     "--lang <language>",
-    m("interface language: en or ru", "язык интерфейса: en или ru"),
+    m(
+      "interface language: en or ru; remembered in interactive runs",
+      "язык интерфейса: en или ru; запоминается при интерактивном запуске",
+    ),
     parseLanguage,
     initialLanguage,
   )
@@ -272,6 +285,13 @@ const program = new Command()
     "breakcurl-output",
   )
   .option("--no-color", m("disable colored output", "отключить цветной вывод"))
+  .option(
+    "--no-open",
+    m(
+      "do not open the HTML report in a browser after an interactive run",
+      "не открывать HTML-отчет в браузере после интерактивного запуска",
+    ),
+  )
   .action(async (file: string | undefined, options: CliOptions) => {
     const language = options.lang;
     const config = options.config
@@ -445,6 +465,7 @@ const program = new Command()
       language,
       generated.htmlReportPath,
     );
+    await openCompletedReport(generated.htmlReportPath, options);
     process.exitCode = exitCodeForRun(result);
     if (!hasWorkingBaseline(result)) {
       const note = result.notes?.at(-1);
@@ -569,6 +590,7 @@ program
       language,
       files.htmlReportPath,
     );
+    await openCompletedReport(files.htmlReportPath, options);
     process.exitCode = exitCodeForRun(result);
   });
 
@@ -607,7 +629,52 @@ program
       ),
     });
     process.exitCode = success ? 0 : 2;
+    await openCompletedReport(join(options.output, "demo.html"), options);
   });
+
+async function openCompletedReport(
+  filePath: string,
+  options: CliOptions,
+): Promise<void> {
+  if (
+    !shouldOpenReport({
+      enabled: options.open,
+      stdinIsTTY: input.isTTY,
+      stdoutIsTTY: output.isTTY,
+      ci: process.env.CI,
+    })
+  )
+    return;
+  if (!(await openReport(filePath))) {
+    printNotice(
+      message(options.lang, "REPORT SAVED", "ОТЧЕТ СОХРАНЕН"),
+      message(
+        options.lang,
+        "Could not open the browser. Use the report link above.",
+        "Не удалось открыть браузер. Воспользуйтесь ссылкой на отчет выше.",
+      ),
+      options.color,
+    );
+  }
+}
+
+program.hook("preAction", async () => {
+  const language = program.opts<CliOptions>().lang;
+  if (
+    shouldPersistLanguagePreference({
+      explicitLanguage:
+        program.getOptionValueSource("lang") === "cli" ? language : undefined,
+      stdinIsTTY: input.isTTY,
+      stdoutIsTTY: output.isTTY,
+      ci: process.env.CI,
+    })
+  ) {
+    const warning = await saveLanguagePreference(language);
+    if (warning) {
+      console.error(`${message(language, "WARNING", "ВНИМАНИЕ")}  ${warning}`);
+    }
+  }
+});
 
 program.parseAsync().catch((error: unknown) => {
   const language = program.opts<CliOptions>().lang ?? initialLanguage;
@@ -688,7 +755,7 @@ function resolveReportOption(
 }
 
 async function readCurlInput(language: Language): Promise<string> {
-  if (input.isTTY) return readPastedCurl(language);
+  if (input.isTTY) return readPastedCurl(input, output, language);
 
   const chunks: Buffer[] = [];
   for await (const chunk of input)
@@ -701,33 +768,6 @@ async function readCurlInput(language: Language): Promise<string> {
         "Standard input does not contain cURL.",
         "Стандартный ввод не содержит cURL.",
       ),
-    );
-  }
-  return value;
-}
-
-async function readPastedCurl(language: Language): Promise<string> {
-  console.log(
-    message(
-      language,
-      "Paste the complete Copy as cURL command, then press Enter on an empty line:\n",
-      "Вставьте Copy as cURL целиком, затем нажмите Enter на пустой строке:\n",
-    ),
-  );
-  const reader = createInterface({ input, output });
-  const lines: string[] = [];
-  try {
-    for await (const line of reader) {
-      if (line.trim() === "" && lines.length > 0) break;
-      if (line.trim() !== "" || lines.length > 0) lines.push(line);
-    }
-  } finally {
-    reader.close();
-  }
-  const value = lines.join("\n").trim();
-  if (!value) {
-    throw new Error(
-      message(language, "No cURL was provided.", "cURL не был введён."),
     );
   }
   return value;
@@ -886,7 +926,7 @@ function printResults(
   printResultSummary(result.cases, colorEnabled);
   printSection(message(language, "ARTIFACTS", "АРТЕФАКТЫ"), colorEnabled);
   if (htmlReportPath)
-    printKeyValue(
+    printFileLink(
       message(language, "browser", "браузер"),
       htmlReportPath,
       colorEnabled,

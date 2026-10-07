@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { createColors } from "picocolors";
 import { message, renderText } from "./i18n.js";
@@ -27,6 +29,26 @@ export function printKeyValue(
 ): void {
   const colors = createColors(colorEnabled);
   console.log(`  ${colors.dim(key.padEnd(12))} ${safeTerminalText(value)}`);
+}
+
+export function printFileLink(
+  key: string,
+  filePath: string,
+  colorEnabled: boolean,
+): void {
+  const url = safeTerminalText(pathToFileURL(resolve(filePath)).href);
+  const interactive =
+    process.stdout.isTTY === true &&
+    colorEnabled &&
+    process.env.TERM !== "dumb";
+  const colors = createColors(interactive);
+  // Only our generated file URL may add terminal hyperlink control sequences.
+  const link = interactive
+    ? `\u001b]8;;${url}\u001b\\${url}\u001b]8;;\u001b\\`
+    : url;
+  console.log(
+    `  ${colors.bold(safeTerminalText(key).padEnd(12))} ${colors.cyan(colors.underline(link))}`,
+  );
 }
 
 export function printBaseline(

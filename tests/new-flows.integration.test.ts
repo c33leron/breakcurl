@@ -412,6 +412,7 @@ function runCli(
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
+      env: { ...process.env, BREAKCURL_LANG: "en" },
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
     });

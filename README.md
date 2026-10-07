@@ -17,9 +17,7 @@
   <img src="https://raw.githubusercontent.com/c33leron/BreakCurl/main/docs/assets/breakcurl-demo.gif" alt="Animated replay of real BreakCurl demo results in a macOS-style terminal; output shortened and timing adjusted" width="100%">
 </p>
 
-BreakCurl parses `Copy as cURL` as data, verifies the request, and changes one JSON element at a time. It checks input, authentication, and two-user access, with results in a local HTML report.
-
-No OpenAPI specification, test code, account, cloud service, or global installation required.
+BreakCurl reads `Copy as cURL` without executing it, verifies the request, and tests JSON input, authentication, and two-user access. Results stay in local reports.
 
 ## Try it in 20 seconds
 
@@ -27,19 +25,13 @@ No OpenAPI specification, test code, account, cloud service, or global installat
 npx breakcurl demo
 ```
 
-BreakCurl starts a disposable local API with synthetic data and deliberate bugs, including auth and IDOR examples. Read the terminal summary or open `breakcurl-output/demo.html` in your browser.
+The demo uses a disposable local API with deliberate bugs, including auth and IDOR. In an interactive terminal, it opens `breakcurl-output/demo.html`: one tab with all four examples.
 
-## How it works
-
-1. **Paste** one working `GET`, `POST`, `PUT`, `PATCH`, or `DELETE` request from `DevTools → Network → Copy as cURL (bash)`.
-2. **Confirm** the plan: sanitized target, exact request budget, every check it will send. `--dry-run` sends nothing.
-3. **Read the report**: overall result, evidence, next action, and sanitized replay cURLs. HTML, JSON, JUnit, and SARIF are available.
-
-BreakCurl finds server failures, invalid JSON, weak input handling, and suspicious authentication or responses. Missing-auth successes, reflected markup, and SQL-looking errors need investigation before being called vulnerabilities.
+[Preview a sample report in your browser](https://c33leron.github.io/breakcurl/) without running anything.
 
 ## Quick start
 
-Requires [Node.js 20+](https://nodejs.org/). No project setup or global installation.
+Requires [Node.js 20+](https://nodejs.org/).
 
 ```bash
 npx breakcurl
@@ -47,29 +39,10 @@ npx breakcurl
 
 1. Open `DevTools → Network`, select a working request.
 2. Choose `Copy → Copy as cURL (bash)`.
-3. Paste into the terminal, press `Enter` on an empty line.
-4. Review the target and budget, confirm with `y`. Read results in the terminal and `breakcurl-output/`.
+3. Paste into the terminal and press `Enter` once.
+4. Review the target, checks, and request budget, then confirm with `y`. Read the terminal summary and HTML report.
 
 Confirm npm's first-run install prompt with `y`. Use only authorized DEV/local environments and disposable data.
-
-## What a run looks like
-
-Abridged output of `npx breakcurl demo`; separate auth/IDOR scenarios follow. Timings vary:
-
-```text
-  201      8ms  POST http://127.0.0.1:55980/api/users?token=%3CREDACTED%3E
-  [01/24] PASS   AUTH         401      1ms  All declared auth sources removed: header:Authorization, query:token, json:/token
-  ...
-  [06/24] FAIL   STRUCTURE    500      2ms  $.age = null
-  ...
-  [08/24] WARN   STRUCTURE    200      3ms  $.age = "not-a-number"
-  ...
-  outcome      Failures found
-  tries / plan 25 / 25
-  results      PASS 7   INFO 15   WARN 1   FAIL 1   ERROR 0
-```
-
-`FAIL/WARN` findings include sanitized replay cURLs. Supply your authorized test credentials before running them; review before sharing.
 
 ## Profiles
 
@@ -119,9 +92,9 @@ Scope: Bearer-only GET, one origin, one object-ID path segment, no query strings
 - `--dry-run` sends `0` requests. Checking your own API requires confirmation or `--allow-mutation`.
 - Checks run sequentially, without retries or redirects, capped at `200`. The run stops on `HTTP 429` or transport failure. Response capture: 16 KiB; incomplete bodies cannot establish content-based findings.
 - Auth probes repeat the valid body without valid credentials and may cause a side effect if the endpoint is vulnerable.
-- BreakCurl never executes pasted cURL through a shell and does not perform SSRF, brute force, race/load testing, or bulk data extraction. IDOR checks read only the explicitly configured test objects.
+- Pasted cURL is never executed. No SSRF, brute force, race/load testing, or bulk extraction. IDOR reads only the configured test objects.
 
-BreakCurl is a first pass, not a replacement for a pentest. Read the [security policy](SECURITY.md).
+Read the [security policy](SECURITY.md).
 
 ## Results
 
@@ -131,7 +104,7 @@ BreakCurl is a first pass, not a replacement for a pentest. Read the [security p
 - `FAIL` — a `5xx`, invalid JSON contract, or proven violation of an explicit expectation.
 - `ERROR` — the run or check could not be evaluated correctly.
 
-`severity` describes potential impact; `confidence` describes evidence strength. Start with the overall result and next action. Incomplete means unfinished; baseline-only means no additional checks. A green result does not prove the entire API is secure.
+`severity` describes potential impact; `confidence` describes evidence strength. Incomplete means unfinished; baseline-only means no additional checks. Reflected markup and SQL-looking errors are observations, not proof of exploitation.
 
 ## Reports
 
@@ -148,49 +121,21 @@ breakcurl-output/
     └── fail-age-null.curl   sanitized replay commands for FAIL/WARN
 ```
 
+Interactive runs open the HTML report in your browser. On Windows/Linux, your default HTML app is used. Use `--no-open` to disable this; CI and piped runs never open a browser. The terminal also prints a highlighted `file://` link. Opening it depends on your terminal; you can always paste it into your browser.
+
 ```bash
 npx breakcurl --junit --sarif
 ```
 
-[View the example HTML](https://github.com/c33leron/BreakCurl/blob/main/docs/examples/report.html) · [Download HTML](https://github.com/c33leron/BreakCurl/raw/refs/heads/main/docs/examples/report.html). Expand checks for evidence and next actions. Use `--output` to avoid overwriting earlier reports.
+[View sample report](https://c33leron.github.io/breakcurl/) · [Download HTML](https://github.com/c33leron/BreakCurl/raw/refs/heads/main/docs/examples/report.html). Use `--output` to keep earlier reports. Replay cURLs redact credentials; add your authorized test credentials before running them.
 
-Requests go only to your chosen API; there is no BreakCurl cloud upload or telemetry. Known credentials, secret-like JSON fields, and private markers are redacted before writing. Response bodies are never saved. Unrecognized sensitive values may remain; use synthetic data and review artifacts before sharing.
+Requests go only to your API, with no cloud upload or telemetry. Reports redact known credentials, secret-like JSON fields, and private markers; response bodies are never saved. Unknown sensitive values may remain: use synthetic data and review before sharing.
 
 ## CI and GitHub code scanning
 
 Exit codes: `0` no FAIL or ERROR · `1` completed with FAIL · `2` ERROR, invalid input, or failed baseline/control. Incomplete runs take precedence and exit `2`, and are marked unsuccessful in JUnit/SARIF. Warnings can still exit `0`.
 
-The official [GitHub Action](https://github.com/c33leron/BreakCurl/tree/main/action) runs BreakCurl from a cURL file, publishes findings to the repository Security tab via SARIF, and fails the job on `FAIL`.
-
-<details>
-<summary>Example GitHub workflow</summary>
-
-```yaml
-name: API checks
-on:
-  schedule:
-    - cron: "0 4 * * 1"
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  security-events: write
-
-jobs:
-  breakcurl:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: c33leron/BreakCurl/action@main
-        with:
-          curl-file: tests/fixtures/create-user.curl
-          profile: security
-          breakcurl-version: "0.3.0"
-```
-
-</details>
-
-Strict auth checks need `auth-contract` and `expect-auth`. Do not commit credentials; see the [action README](https://github.com/c33leron/BreakCurl/blob/main/action/README.md) for using secrets.
+The [GitHub Action](https://github.com/c33leron/BreakCurl/tree/main/action) runs a cURL file, publishes SARIF to the repository Security tab, and fails on `FAIL`. See its [workflow and secrets setup](https://github.com/c33leron/BreakCurl/blob/main/action/README.md). Strict auth checks need `auth-contract` and `expect-auth`; never commit credentials.
 
 ## Files and custom checks
 
@@ -201,32 +146,16 @@ cat request.curl | npx breakcurl --profile quick --allow-mutation
 npx breakcurl --only '$.email' --exclude '$.profile.internalNote' --set '$.age=-1' --remove '$.profile.middleName'
 ```
 
-Use a [JSON config](breakcurl.config.example.json) for repeatable checks:
-
-```bash
-npx breakcurl --config breakcurl.config.json
-```
-
-Reference the [JSON Schema](breakcurl.config.schema.json) in your config for editor autocompletion:
-
-```json
-{ "$schema": "https://raw.githubusercontent.com/c33leron/BreakCurl/main/breakcurl.config.schema.json" }
-```
-
-Complete CLI reference:
-
-```bash
-npx breakcurl --help
-```
+Use `--config breakcurl.config.json` for repeatable checks: [example](breakcurl.config.example.json) · [schema](breakcurl.config.schema.json). Run `npx breakcurl --help` for all options.
 
 ## Language
 
-English is the default; use `npx breakcurl --lang ru` or `export BREAKCURL_LANG=ru`. HTML and Markdown follow the selected language. JSON, JUnit, and SARIF keep stable English machine-readable fields.
+English is the default. Run `npx breakcurl --lang ru` in your terminal to save Russian; `--lang en` switches back. `--lang` and `BREAKCURL_LANG` override the saved choice. Piped and CI runs never save changes. HTML/Markdown follow the language; JSON/JUnit/SARIF keep stable English fields.
 
 ## FAQ
 
 **What do I need to start?**
-Node.js 20+ and one working cURL. Run `npx breakcurl`; no project setup, OpenAPI spec, or global installation needed. To try it without your own API, run `npx breakcurl demo`.
+Node.js 20+ and a working cURL. Run `npx breakcurl`, or `npx breakcurl demo` for a local example. No setup, OpenAPI spec, account, or global installation.
 
 **Can it change data in my API?**
 Yes. Write requests, including auth probes, can create or change data. Use an authorized DEV/local environment with disposable data. Preview the plan with `--dry-run`, which sends no requests.
@@ -235,7 +164,7 @@ Yes. Write requests, including auth probes, can create or change data. Use an au
 Yes. Use GET without a body for basic checks, or the [two-user IDOR workflow](#two-user-access-checks-idor) to test access to another user's private object.
 
 **Where do my secrets go?**
-Requests go to your chosen API, with no BreakCurl cloud upload or telemetry. Known secrets are hidden in local reports; response bodies are not saved. Review files before sharing: unrecognized sensitive values may remain.
+Requests go only to your API. Reports redact known secrets and never save response bodies. Unknown sensitive values may remain, so review files before sharing.
 
 **Does a green result mean my API is secure?**
 No. It only confirms the expectations actually checked. BreakCurl helps find problems early; it does not replace a pentest.
@@ -245,8 +174,6 @@ No. It only confirms the expectations actually checked. BreakCurl helps find pro
 BreakCurl supports one HTTP(S) URL: `GET` without a body, or `POST`/`PUT`/`PATCH`/`DELETE` with a root JSON object. Multipart/file bodies, redirects, shell variables, pipes, substitutions, client certificates, and duplicate headers are unsupported. IDOR has the narrower limits described above.
 
 ## Development
-
-For contributors only; users start with `npx breakcurl`.
 
 ```bash
 git clone https://github.com/c33leron/BreakCurl.git

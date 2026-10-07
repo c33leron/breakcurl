@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — Smoother terminal workflow
+
+- Accept browser Copy as cURL with ANSI-C quotes (`$'…'`), escaped apostrophes, and multiline text without changing JSON values. Input is still parsed as data, never executed.
+- Submit pasted cURL with one Enter, including multiline commands; keep the separate confirmation before sending requests.
+- Skip automatic mutations that would resend an unchanged value, preserving the request budget for meaningful checks.
+- Open the HTML report in the browser after interactive runs; `--no-open` disables it, and CI/piped runs never open a browser. The demo opens one index with all four examples.
+- Highlight and underline clickable local HTML report links in supported terminals, with visible file URLs as a fallback.
+- Remember an explicitly selected language between interactive runs; environment and CI overrides remain temporary.
+
 ## 0.3.0 — Security checks and local HTML reports
 
 - Standalone `report.html` with localized findings, baseline assessment, evidence, request counts, and explicit scope limits; no scripts or external resources.

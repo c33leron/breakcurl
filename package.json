@@ -1,6 +1,6 @@
 {
   "name": "breakcurl",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Security-focused negative API testing from one working cURL",
   "type": "module",
   "bin": {
@@ -61,7 +61,7 @@
   "dependencies": {
     "commander": "^14.0.3",
     "picocolors": "^1.1.1",
-    "shell-quote": "^1.8.3"
+    "shell-quote": "^1.12.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.4",
