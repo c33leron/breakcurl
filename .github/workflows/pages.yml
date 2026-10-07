@@ -1,0 +1,46 @@
+name: Deploy report preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/examples/report.html
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@v5
+      - name: Stage the synthetic demo report
+        run: |
+          test -f docs/examples/report.html
+          test ! -L docs/examples/report.html
+          grep -Fq 'All request data is synthetic' docs/examples/report.html
+          mkdir "$RUNNER_TEMP/breakcurl-pages"
+          cp docs/examples/report.html "$RUNNER_TEMP/breakcurl-pages/index.html"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/breakcurl-pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

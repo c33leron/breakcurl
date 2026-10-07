@@ -27,6 +27,8 @@ npx breakcurl demo
 
 The demo uses a disposable local API with deliberate bugs, including auth and IDOR. In an interactive terminal, it opens `breakcurl-output/demo.html`: one tab with all four examples.
 
+[Preview a sample report in your browser](https://c33leron.github.io/breakcurl/) without running anything.
+
 ## Quick start
 
 Requires [Node.js 20+](https://nodejs.org/).
@@ -125,7 +127,7 @@ Interactive runs open the HTML report in your browser. On Windows/Linux, your de
 npx breakcurl --junit --sarif
 ```
 
-[View example HTML](https://github.com/c33leron/BreakCurl/blob/main/docs/examples/report.html) · [Download HTML](https://github.com/c33leron/BreakCurl/raw/refs/heads/main/docs/examples/report.html). Use `--output` to keep earlier reports. Replay cURLs redact credentials; add your authorized test credentials before running them.
+[View sample report](https://c33leron.github.io/breakcurl/) · [Download HTML](https://github.com/c33leron/BreakCurl/raw/refs/heads/main/docs/examples/report.html). Use `--output` to keep earlier reports. Replay cURLs redact credentials; add your authorized test credentials before running them.
 
 Requests go only to your API, with no cloud upload or telemetry. Reports redact known credentials, secret-like JSON fields, and private markers; response bodies are never saved. Unknown sensitive values may remain: use synthetic data and review before sharing.
 
