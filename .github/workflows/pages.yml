@@ -38,7 +38,7 @@ jobs:
           grep -Fq 'All request data is synthetic' docs/examples/report.html
           mkdir "$RUNNER_TEMP/breakcurl-pages"
           cp docs/examples/report.html "$RUNNER_TEMP/breakcurl-pages/index.html"
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/breakcurl-pages
       - name: Deploy to GitHub Pages
