@@ -159,7 +159,7 @@ describe("installed-style CLI flow", () => {
     );
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/profile\s+QUICK/);
+    expect(result.stdout).toMatch(/profile\s+SECURITY/);
     expect(result.stdout).toContain(
       "PASS 1   INFO 0   WARN 0   FAIL 0   ERROR 0",
     );

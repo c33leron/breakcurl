@@ -2,7 +2,7 @@
 
 Runs [BreakCurl](https://github.com/c33leron/BreakCurl) against one saved cURL request in CI, writes HTML, Markdown, JSON, JUnit, and SARIF reports, and optionally publishes findings to [GitHub code scanning](https://docs.github.com/en/code-security/code-scanning).
 
-Use `breakcurl-version: "0.3.0"` for HTML reports, auth observations in `quick`, and complete auth contracts. The Action downloads the selected version from npm. JUnit and SARIF are also supported in `0.2.0`.
+Use `breakcurl-version: "0.4.0"` for the current security profile, JWT and mass-assignment probes, spec discovery, OWASP coverage, and baseline SARIF findings. The Action downloads the selected version from npm. HTML reports and auth contracts require `0.3.0+`; JUnit and SARIF require `0.2.0+`.
 
 ## Usage
 
@@ -28,7 +28,7 @@ jobs:
         with:
           curl-file: tests/fixtures/create-user.curl
           profile: security
-          breakcurl-version: "0.3.0"
+          breakcurl-version: "0.4.0"
 ```
 
 The job fails when BreakCurl exits non-zero: `1` means a completed run with at least one `FAIL`; `2` means an incomplete run, `ERROR`, invalid input, or a failed baseline. For advisory-only runs add `continue-on-error: true` to the job.
@@ -63,7 +63,7 @@ BreakCurl does not expand shell variables in the pasted cURL, so do not commit r
       - uses: c33leron/BreakCurl/action@main
         with:
           curl-file: ${{ runner.temp }}/request.curl
-          breakcurl-version: "0.3.0"
+          breakcurl-version: "0.4.0"
 ```
 
 Use a dedicated test account against a non-production environment. Reports redact credentials before writing, but replay cURLs may still contain non-secret values from the original JSON body.
@@ -75,7 +75,7 @@ Replace the synthetic endpoint with your authorized test endpoint. The token ent
 | Input | Default | Description |
 | --- | --- | --- |
 | `curl-file` | — (required) | File containing the working cURL command |
-| `profile` | `quick` | `quick`, `negative`, `security`, or `full` |
+| `profile` | `security` | `quick`, `negative`, `security`, or `full` |
 | `max-cases` | profile default | Maximum checks, 1–200 |
 | `expect-auth` | `false` | Require strict auth rejection. In 0.3.0+, also supply a complete `auth-contract`; `quick` already includes non-strict auth observations. |
 | `auth-contract` | empty | Path to a complete auth contract JSON file; requires 0.3.0+ |

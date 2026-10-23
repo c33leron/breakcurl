@@ -6,6 +6,7 @@ import {
   invalidAuthValue,
 } from "./auth-contract.js";
 import { englishText, localized, message } from "./i18n.js";
+import { createJwtCases } from "./jwt-probe.js";
 import { collectSensitiveValues } from "./redact.js";
 import type {
   CheckCategory,
@@ -14,6 +15,7 @@ import type {
   CheckProfile,
   CustomCaseDefinition,
   GeneratedChecks,
+  HttpMethod,
   JsonObject,
   JsonValue,
   Language,
@@ -156,6 +158,49 @@ export function generateChecks(
     }
   }
 
+  // JWT attacks (API2:2023): replay with alg=none, stripped signature,
+  // tampered claims, and exp tampering. Only for attack-oriented profiles.
+  if (options.profile === "security" || options.profile === "full") {
+    const soleAuthSource = options.authContract?.sources[0];
+    const strictJwtAuth =
+      options.expectAuth === true &&
+      options.authContract?.complete === true &&
+      options.authContract.sources.length === 1 &&
+      soleAuthSource?.in === "header" &&
+      soleAuthSource.name.toLowerCase() === "authorization";
+    const jwtCases = createJwtCases(request, strictJwtAuth);
+    if (jwtCases.length > 0) {
+      fixedCases.push(...jwtCases);
+      notes.push(
+        localized(
+          "JWT attacks: the endpoint is replayed with broken tokens (alg=none, stripped signature, tampered claims or exp). Other credentials are preserved. HTTP status alone does not prove signature or expiry verification; exp tampering invalidates the signature and does not independently test expiry enforcement. Strict HTTP rejection expectations require --expect-auth and a complete contract declaring Authorization as the sole auth source.",
+          "JWT-атаки: endpoint отправляется со сломанными токенами (alg=none, срыв подписи, подмена claims или exp). Другие credentials сохраняются. HTTP-статус сам по себе не доказывает проверку подписи или срока; подмена exp ломает подпись и не проверяет срок отдельно. Строгое ожидание HTTP-отказа требует --expect-auth и полного контракта с Authorization как единственным auth source.",
+        ),
+      );
+    }
+  }
+
+  // Method tampering (API5:2023): explicit opt-in because alternative verbs
+  // may modify or delete data on the target.
+  if (options.attackMethods) {
+    if (request.method === "GET") {
+      notes.push(
+        localized(
+          "Method tampering was not generated: it requires a non-GET baseline request.",
+          "Method tampering не сгенерирован: нужен исходный запрос не GET.",
+        ),
+      );
+    } else {
+      fixedCases.push(...createMethodTamperCases(request));
+      notes.push(
+        localized(
+          "Method tampering (opt-in): the same request is replayed with alternative HTTP methods, including destructive verbs. This can modify or delete data on the target.",
+          "Method tampering (по запросу): тот же запрос отправляется альтернативными HTTP-методами, включая деструктивные. Это может изменить или удалить данные в целевой системе.",
+        ),
+      );
+    }
+  }
+
   if (customCases.length > options.maxCases) {
     throw new Error(
       message(
@@ -189,6 +234,15 @@ export function generateChecks(
   if (request.method !== "GET" && options.profile !== "quick") {
     automaticCases.push(createUnknownFieldCase(request));
   }
+  if (
+    request.method !== "GET" &&
+    (options.profile === "security" || options.profile === "full")
+  ) {
+    automaticCases.push(...createPrivilegeCases(request));
+  }
+  if (options.profile === "security" || options.profile === "full") {
+    automaticCases.push(...createReconCases(request));
+  }
   const cases = [...fixedCases, ...automaticCases].slice(0, options.maxCases);
 
   if (authCases.length > 0) {
@@ -211,11 +265,7 @@ export function generateChecks(
       ),
     );
   }
-  if (
-    fields.length === 0 &&
-    customCases.length === 0 &&
-    fixedCases.length === 0
-  ) {
+  if (cases.length === 0) {
     notes.push(
       localized(
         "No checks were generated for the selected JSON paths.",
@@ -254,6 +304,7 @@ export function requestForCase(
     url: mutation.url ?? baseline.url,
     headers: mutation.headers ?? baseline.headers,
     body: mutation.body,
+    method: mutation.method ?? baseline.method,
   };
 }
 
@@ -619,6 +670,94 @@ function createContentTypeCase(request: ParsedCurl): MutationCase {
     expectation: "observe",
     source: "built-in",
   };
+}
+
+/**
+ * Mass-assignment probes (API3:2023): inject privileged property names into
+ * the payload. Acceptance is a signal that client-supplied fields may reach
+ * authorization logic.
+ */
+function createPrivilegeCases(request: ParsedCurl): MutationCase[] {
+  const probes: Array<[string, JsonValue]> = [
+    ["isAdmin", true],
+    ["role", "admin"],
+  ];
+  const cases: MutationCase[] = [];
+  for (const [key, value] of probes) {
+    if (Object.hasOwn(request.body, key)) continue;
+    const body = structuredClone(request.body);
+    body[key] = value;
+    cases.push({
+      id: `privilege-field:$.${key}`,
+      path: `$.${key}`,
+      description: localized(
+        `privileged field $.${key} injected into the payload`,
+        `привилегированное поле $.${key} добавлено в тело запроса`,
+      ),
+      kind: "privilege-field",
+      body,
+      category: "authorization",
+      expectation: "observe",
+      source: "built-in",
+    });
+  }
+  return cases;
+}
+
+/**
+ * Same-origin API spec discovery (API9:2023): unauthenticated GETs against
+ * well-known documentation paths. Credentials are deliberately stripped so
+ * the probe answers one question: is the spec reachable without auth?
+ */
+function createReconCases(request: ParsedCurl): MutationCase[] {
+  const paths = ["/openapi.json", "/swagger.json", "/graphql", "/api-docs"];
+  // Credentials may use arbitrary header names. Rebuild from an allowlist
+  // instead of copying unknown headers from the authenticated baseline.
+  const headers = { Accept: "application/json" };
+  const cases: MutationCase[] = [];
+  for (const path of paths) {
+    cases.push({
+      id: `spec-probe:${path}`,
+      path,
+      description: localized(
+        `unauthenticated discovery probe for ${path}`,
+        `проба обнаружения без авторизации: ${path}`,
+      ),
+      kind: "spec-probe",
+      body: {},
+      headers,
+      url: new URL(path, request.url).origin + path,
+      method: "GET",
+      category: "recon",
+      expectation: "observe",
+      source: "built-in",
+    });
+  }
+  return cases;
+}
+
+/**
+ * Method tampering (API5:2023): replay the working request with every other
+ * supported verb. Destructive by nature — generated only for --attack-methods.
+ */
+function createMethodTamperCases(request: ParsedCurl): MutationCase[] {
+  const methods: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+  return methods
+    .filter((method) => method !== request.method)
+    .map((method) => ({
+      id: `method-tamper:${method}`,
+      path: `$method`,
+      description: localized(
+        `request replayed with HTTP ${method} instead of ${request.method}`,
+        `запрос отправлен методом HTTP ${method} вместо ${request.method}`,
+      ),
+      kind: "method-tamper" as const,
+      body: structuredClone(request.body),
+      method,
+      category: "authorization" as const,
+      expectation: "observe" as const,
+      source: "built-in" as const,
+    }));
 }
 
 function createAuthCases(

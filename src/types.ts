@@ -28,6 +28,8 @@ export type CheckCategory =
   | "protocol"
   | "injection"
   | "authentication"
+  | "authorization"
+  | "recon"
   | "custom";
 
 export type CheckExpectation = "reject" | "accept" | "auth-reject" | "observe";
@@ -54,6 +56,13 @@ export type MutationKind =
   | "content-type-missing"
   | "auth-missing"
   | "auth-invalid"
+  | "jwt-alg-none"
+  | "jwt-signature-strip"
+  | "jwt-claim-tamper"
+  | "jwt-expired"
+  | "privilege-field"
+  | "method-tamper"
+  | "spec-probe"
   | "custom-set"
   | "custom-remove";
 
@@ -68,6 +77,8 @@ export interface MutationCase {
   source?: "built-in" | "custom";
   headers?: Record<string, string>;
   url?: string;
+  /** Overrides the baseline HTTP method for this case (method tampering, recon GETs). */
+  method?: HttpMethod;
 }
 
 export interface HttpResult {
@@ -97,6 +108,28 @@ export interface SecuritySignal {
   title: TranslatableText;
   severity: FindingSeverity;
   cwe?: string;
+  /** OWASP API Security Top 10 (2023) category, e.g. "API2:2023". */
+  owasp?: string;
+}
+
+/** OWASP API Security Top 10 (2023) item ids used in coverage reporting. */
+export type OwaspApiItem =
+  | "API1:2023"
+  | "API2:2023"
+  | "API3:2023"
+  | "API4:2023"
+  | "API5:2023"
+  | "API6:2023"
+  | "API7:2023"
+  | "API8:2023"
+  | "API9:2023"
+  | "API10:2023";
+
+export interface OwaspCoverageEntry {
+  item: OwaspApiItem;
+  title: string;
+  status: "tested" | "partial" | "not-tested" | "out-of-scope";
+  detail: TranslatableText;
 }
 
 export interface CaseResult {
@@ -152,6 +185,8 @@ export interface CheckGenerationOptions {
   expectAuth?: boolean;
   authBodyPaths?: string[];
   authContract?: AuthContract;
+  /** Opt-in: add HTTP method tampering cases (may modify or delete target data). */
+  attackMethods?: boolean;
   language?: Language;
 }
 

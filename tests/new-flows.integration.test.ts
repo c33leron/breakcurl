@@ -122,12 +122,14 @@ describe("new installed-style flows", () => {
     );
   });
 
-  it("runs auth probes in default quick and reserves the remaining 15-case budget for body checks", async () => {
+  it("runs auth probes in the quick profile and reserves the remaining 15-case budget for body checks", async () => {
     const fixture = await writeQuickFixture(origin);
     const before = received.length;
     const result = await runCli(
       [
         fixture.input,
+        "--profile",
+        "quick",
         "--allow-mutation",
         "--no-color",
         "--output",
@@ -171,7 +173,15 @@ describe("new installed-style flows", () => {
     await writeFile(input, getCurl(`${origin}/get`, TOKEN_A));
     const before = received.length;
     const result = await runCli(
-      [input, "--allow-mutation", "--no-color", "--output", output],
+      [
+        input,
+        "--profile",
+        "quick",
+        "--allow-mutation",
+        "--no-color",
+        "--output",
+        output,
+      ],
       directory,
     );
     expect(result.code).toBe(0);

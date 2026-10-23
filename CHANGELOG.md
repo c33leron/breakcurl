@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 — Attack mode: OWASP API coverage, JWT tampering, recon
+
+- **JWT attacks (API2:2023)**: signed Bearer tokens are replayed with `alg=none`, a stripped signature, or modified claims/`exp`. Successful probes remain candidates unless a complete sole-Authorization contract and `--expect-auth` require HTTP rejection. Changing `exp` also invalidates the signature and does not test expiry enforcement. Unchanged variants and unsigned source tokens are skipped.
+- **Mass-assignment probes (API3:2023)**: `isAdmin: true` and `role: "admin"` are injected into the payload; responses remain observations until field persistence or permission effects are independently verified.
+- **Excessive-data scan (API3:2023)**: responses are scanned in memory for bcrypt/argon2/crypt password hashes and sensitive-named fields; values never reach reports (CWE-200).
+- **Configuration audit (API8:2023)**: the baseline response is audited once for incompatible CORS wildcard with credentials (LOW configuration observation; browsers block credentialed reads), missing `Secure`/`HttpOnly` cookie flags (CWE-614), missing HSTS (CWE-319), and versioned `Server` headers.
+- **Spec discovery (API9:2023)**: unauthenticated same-origin GETs to `/openapi.json`, `/swagger.json`, `/graphql`, `/api-docs`; structured specs and recognized documentation renderers are flagged for review. Input headers and credentials are not forwarded to these paths.
+- **Method tampering (API5:2023)**: opt-in `--attack-methods` replays a non-GET working request with each other supported HTTP verb, including destructive ones. Off by default.
+- **OWASP API Security Top 10 coverage matrix** in `report.md`, `report.html`, and `report.json` — statuses and descriptions reflect evaluated probes. Failed IDOR prerequisites do not claim a completed cross-account read or unrelated audits; out-of-scope items are stated explicitly.
+- **OWASP tags on signals** in SARIF (`breakcurl/owasp` property) and HTML badges (`API2:2023`, …).
+- Baseline findings and each individual security signal are exported to SARIF with their own rule and severity; server/transport failures retain their primary result.
+- SARIF `security-severity` is now derived from the finding severity (HIGH `8.1` / MEDIUM `5.0` / LOW `2.5`) instead of a hardcoded CWE guess — HIGH IDOR findings no longer score `5.0`.
+- Default profile is now `security` (attack-first). `quick`, `negative`, and `full` remain available; `--profile` overrides.
+- Terminal labels for the new `AUTHZ` and `RECON` categories; confirmation prompt mentions broken-JWT and method-tampering side effects.
+- **Migration from 0.3**: default runs send more requests than the old `quick` default (up to ~80 checks); use `--profile quick` or `--max-cases` to keep the old budget. SARIF rule severities may shift where findings are HIGH.
+
 ## 0.3.1 — Smoother terminal workflow
 
 - Accept browser Copy as cURL with ANSI-C quotes (`$'…'`), escaped apostrophes, and multiline text without changing JSON values. Input is still parsed as data, never executed.

@@ -181,7 +181,7 @@ describe("first-user CLI acceptance against a stateful API", () => {
     }
     expect(result.stdout).toContain(join(output, "report.html"));
     const report = JSON.parse(json);
-    expect(report.profile).toBe("quick");
+    expect(report.profile).toBe("security");
     expect(report.outcome.exitCode).toBe(result.code);
     expect(report.outcome.requestsAttempted).toBe(requests.get(path)?.length);
     expect(report.outcome.requestsPlanned).toBe(3);
@@ -327,7 +327,16 @@ describe("first-user CLI acceptance against a stateful API", () => {
       executionSuccessful: false,
       toolExecutionNotifications: [expect.objectContaining({ level: "error" })],
     });
-    expect(result.sarif.runs[0].results).toEqual([]);
+    expect(result.sarif.runs[0].results).toEqual([
+      expect.objectContaining({
+        ruleId: "baseline-finding",
+        level: "error",
+        properties: expect.objectContaining({
+          "breakcurl/source": "baseline",
+          "breakcurl/http-status": 500,
+        }),
+      }),
+    ]);
   });
 
   it("keeps public unauthenticated writes as reviewable observations without an auth expectation", async () => {

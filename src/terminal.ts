@@ -159,8 +159,12 @@ function categoryLabel(category: CaseResult["mutation"]["category"]): string {
   switch (category) {
     case "authentication":
       return "AUTH";
+    case "authorization":
+      return "AUTHZ";
     case "injection":
       return "INJECTION";
+    case "recon":
+      return "RECON";
     case "boundary":
       return "BOUNDARY";
     case "protocol":

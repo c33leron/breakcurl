@@ -1,7 +1,7 @@
 <h1 align="center">BreakCurl</h1>
 
 <p align="center">
-  <strong>Paste one working cURL and see how your API handles invalid data, broken authorization, and unsafe responses.</strong>
+  <strong>Paste one working cURL and attack your API: broken JWTs, mass assignment, authorization bypass, exposed specs, and unsafe responses — mapped to OWASP API Security Top 10.</strong>
 </p>
 
 <p align="center">
@@ -17,7 +17,24 @@
   <img src="https://raw.githubusercontent.com/c33leron/BreakCurl/main/docs/assets/breakcurl-demo.gif" alt="Animated replay of real BreakCurl demo results in a macOS-style terminal; output shortened and timing adjusted" width="100%">
 </p>
 
-BreakCurl reads `Copy as cURL` without executing it, verifies the request, and tests JSON input, authentication, and two-user access. Results stay in local reports.
+BreakCurl reads `Copy as cURL` without executing it, then attacks the endpoint within a bounded sequential plan: authentication and JWT tampering, mass assignment, injection probes, spec discovery, response exposure scans, and two-user IDOR — with an OWASP API coverage matrix in every report.
+
+## OWASP API Security Top 10 (2023)
+
+| Item | What BreakCurl does |
+| --- | --- |
+| API1 BOLA | Canary-proven two-user IDOR experiment (`idor` command) |
+| API2 Broken Authentication | Credential removal/invalidation probes + JWT attacks: `alg=none`, signature strip, claim and exp tampering (not an expiry-enforcement test) |
+| API3 BOPLA / Excessive Data | Mass-assignment probes (`isAdmin`/`role` injection; effects need verification), password-hash and sensitive-field response scans |
+| API4 Resource Consumption | Out of scope by design — no load, race, or brute force |
+| API5 Function Level AuthZ | HTTP method tampering with `--attack-methods` (opt-in, destructive) |
+| API6 Business Flows | Out of scope — single-request model |
+| API7 SSRF | Out of scope in this version — URL-like inputs are only observed |
+| API8 Misconfiguration | Baseline audit: incompatible CORS headers, cookie flags, HSTS, verbose headers |
+| API9 Inventory | Same-origin spec discovery: `/openapi.json`, `/swagger.json`, `/graphql`, `/api-docs` without credentials |
+| API10 Unsafe Consumption | Out of scope — BreakCurl is not a client of third-party APIs |
+
+Every report lists which items were actually tested in that run — the matrix never claims coverage a run did not attempt.
 
 ## Try it in 20 seconds
 
@@ -50,12 +67,12 @@ Confirm npm's first-run install prompt with `y`. Use only authorized DEV/local e
 | --- | ---: | --- |
 | `quick` | 15 | Auth probes when supported credentials are present, plus short JSON checks |
 | `negative` | 60 | JSON structure and boundaries, whitespace, long strings, Unicode |
-| `security` | 80 | Auth boundary, constrained injection probes, protocol checks |
+| `security` **(default)** | 80 | Auth + JWT attacks, mass assignment, injection probes, protocol checks, spec discovery |
 | `full` | 120 | Negative + Security |
 
 ```bash
 npx breakcurl --profile negative
-npx breakcurl --security
+npx breakcurl --profile full --attack-methods
 ```
 
 Counts are maximums, plus one original request. Strict auth checks require `--expect-auth` **and a complete contract**:
@@ -65,6 +82,15 @@ npx breakcurl request.curl --auth-contract breakcurl.auth.example.json --expect-
 ```
 
 Declare every header/query/JSON credential in [the auth contract](breakcurl.auth.example.json). `401/403` confirms rejection; success becomes `FAIL` only with that complete declaration; other `4xx` responses are inconclusive. Without it, success is a candidate. You are responsible for completeness.
+
+## Attack checks
+
+- **JWT attacks** — when the cURL carries a signed Bearer JWT, replay variants include `alg=none`, a stripped signature, and changed privileged claims (`sub`, `role`, …) or `exp` with the original signature. Successful responses are candidates (`WARN`). A strict `FAIL` requires `--expect-auth` and a complete auth contract naming `Authorization` as the only credential source; it confirms a violation of the required HTTP rejection, not resource access or a completed operation. Changing `exp` breaks the signature too, so this probe does **not** test expiry enforcement. Unchanged variants and already unsigned tokens are skipped.
+- **Mass assignment** — `isAdmin: true` and `role: "admin"` are injected into the payload. A successful request remains an observation (`INFO`): field persistence and permission changes need independent verification.
+- **Spec discovery** — unauthenticated `GET`s to `/openapi.json`, `/swagger.json`, `/graphql`, `/api-docs` on the same origin, with only a generated `Accept` header. Structured specs or recognized documentation renderers are flagged for review; an ordinary GraphQL error is not a specification. Public documentation alone is not proof of a vulnerability.
+- **Response exposure scan** — every response is scanned in memory for bcrypt/argon2 password hashes and sensitive-named fields; values are never written to reports (CWE-200).
+- **Configuration audit** — the baseline response is audited once for incompatible CORS `*` + credentials (a LOW configuration observation: browsers block credentialed reads), missing `Secure`/`HttpOnly` cookie flags, missing HSTS, and versioned `Server` headers. These observations need application context.
+- **Method tampering** — for a non-GET baseline, `--attack-methods` replays the request with each other supported HTTP verb, including destructive ones. Off by default because it can modify or delete data.
 
 ## Two-user access checks (IDOR)
 
@@ -91,8 +117,8 @@ Scope: Bearer-only GET, one origin, one object-ID path segment, no query strings
 - Use only an authorized DEV/local environment and disposable data.
 - `--dry-run` sends `0` requests. Checking your own API requires confirmation or `--allow-mutation`.
 - Checks run sequentially, without retries or redirects, capped at `200`. The run stops on `HTTP 429` or transport failure. Response capture: 16 KiB; incomplete bodies cannot establish content-based findings.
-- Auth probes repeat the valid body without valid credentials and may cause a side effect if the endpoint is vulnerable.
-- Pasted cURL is never executed. No SSRF, brute force, race/load testing, or bulk extraction. IDOR reads only the configured test objects.
+- Auth and JWT probes repeat the valid body with removed, invalidated, or broken credentials and may execute the operation if the endpoint is vulnerable. Method tampering (`--attack-methods`) replays the request with alternative verbs, including destructive ones.
+- Pasted cURL is never executed. No SSRF, brute force, race/load testing, or bulk extraction. IDOR reads only the configured test objects. Spec discovery stays on the same origin, without credentials.
 
 Read the [security policy](SECURITY.md).
 

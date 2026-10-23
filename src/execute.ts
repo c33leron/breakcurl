@@ -1,4 +1,4 @@
-import { classifyCase } from "./classify.js";
+import { classifyBaseline, classifyCase } from "./classify.js";
 import { localized } from "./i18n.js";
 import { requestForCase } from "./mutations.js";
 import { hasWorkingBaseline, summarizeRun } from "./run-summary.js";
@@ -33,18 +33,7 @@ export async function executeChecks(
   if (mutations.length > 200)
     throw new Error("The request plan exceeds 200 checks.");
   const response = await sendRequest(request, options.timeoutMs);
-  const assessment = classifyCase(
-    {
-      id: "baseline",
-      path: "$",
-      description: "Baseline response",
-      kind: "custom-set",
-      category: "protocol",
-      expectation: "observe",
-      body: request.body,
-    },
-    response,
-  );
+  const assessment = classifyBaseline(request, response);
   const result: RunResult = {
     baseline: { request, response, assessment },
     cases: [],

@@ -1,6 +1,6 @@
 {
   "name": "breakcurl",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Security-focused negative API testing from one working cURL",
   "type": "module",
   "bin": {

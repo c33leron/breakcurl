@@ -1,7 +1,13 @@
 import { englishText } from "./i18n.js";
 import { redactText, redactUrl } from "./redact.js";
 import { hasWorkingBaseline, summarizeRun } from "./run-summary.js";
-import type { CaseResult, RunResult } from "./types.js";
+import type {
+  CaseResult,
+  Classification,
+  FindingSeverity,
+  RunResult,
+  SecuritySignal,
+} from "./types.js";
 import { VERSION } from "./version.js";
 
 const REPOSITORY_URI = "https://github.com/c33leron/BreakCurl";
@@ -49,6 +55,59 @@ const RULES: Record<string, RuleMetadata> = {
     short: "The response exposes implementation technology headers.",
     cwe: "CWE-200",
   },
+  "jwt-signature-not-enforced": {
+    short:
+      "The endpoint accepted a JWT with a broken signature (alg=none, stripped, or tampered claims).",
+    cwe: "CWE-347",
+  },
+  "jwt-auth-rejection-missing": {
+    short:
+      "A tampered JWT did not receive an authentication rejection; signature bypass requires separate evidence.",
+    cwe: "CWE-347",
+  },
+  "jwt-expiry-not-enforced": {
+    short: "The endpoint accepted an expired JWT.",
+    cwe: "CWE-613",
+  },
+  "mass-assignment-accepted": {
+    short:
+      "An injected privileged field was accepted into the payload (mass assignment).",
+    cwe: "CWE-915",
+  },
+  "unexpected-method-accepted": {
+    short:
+      "The endpoint processed the request under an unexpected HTTP method.",
+    cwe: "CWE-284",
+  },
+  "api-spec-exposure": {
+    short: "An API specification is exposed without authentication.",
+    cwe: "CWE-200",
+  },
+  "cors-wildcard-credentials": {
+    short:
+      "The CORS wildcard and credentials combination is invalid for credentialed browser access.",
+    cwe: "CWE-942",
+  },
+  "cookie-flags-missing": {
+    short: "Set-Cookie lacks the Secure or HttpOnly protection.",
+    cwe: "CWE-614",
+  },
+  "hsts-missing": {
+    short: "The HTTPS response does not enforce HSTS.",
+    cwe: "CWE-319",
+  },
+  "server-version-header": {
+    short: "The Server header reveals an implementation version.",
+    cwe: "CWE-200",
+  },
+  "password-hash-exposure": {
+    short: "The response exposes a password or secret hash.",
+    cwe: "CWE-200",
+  },
+  "sensitive-field-response": {
+    short: "The response returns a value for a sensitive-named field.",
+    cwe: "CWE-200",
+  },
   "structure-finding": {
     short: "A mutated JSON structure was not handled as expected.",
   },
@@ -67,20 +126,69 @@ const RULES: Record<string, RuleMetadata> = {
   "custom-finding": {
     short: "A user-defined check produced a finding.",
   },
+  "baseline-finding": {
+    short: "The original request did not pass its response control.",
+  },
 };
 
+const CONTRACT_FAILURE_SIGNALS = new Set([
+  "idor-private-object-disclosure",
+  "authentication-not-enforced",
+  "jwt-auth-rejection-missing",
+  "jwt-signature-not-enforced",
+  "jwt-expiry-not-enforced",
+]);
+
+interface SarifFinding {
+  item: CaseResult;
+  ruleId: string;
+  classification: Classification;
+  severity?: FindingSeverity;
+  signal?: SecuritySignal;
+  baseline: boolean;
+}
+
 /**
- * Renders FAIL, WARN, and ERROR cases as SARIF 2.1.0 for GitHub code
- * scanning. PASS and INFO are omitted so the Security tab stays clean.
+ * Renders baseline and case findings as SARIF 2.1.0 for GitHub code scanning.
+ * Each security signal retains its own rule and severity; PASS and INFO are
+ * omitted so the Security tab stays clean.
  */
 export function formatSarif(
   result: RunResult,
   knownSecrets: string[] = [],
 ): string {
-  const findings = result.cases.filter((item) =>
-    ["FAIL", "WARN", "ERROR"].includes(item.classification),
-  );
-  const ruleIds = [...new Set(findings.map((item) => ruleIdFor(item)))];
+  const baselineAssessment = result.baseline.assessment;
+  const findings = [
+    ...(baselineAssessment
+      ? findingsFor(
+          {
+            mutation: {
+              id: "baseline",
+              path: "$",
+              description: "Baseline response",
+              kind: "custom-set",
+              category: "protocol",
+              body: result.baseline.request.body,
+            },
+            response: result.baseline.response,
+            ...baselineAssessment,
+          },
+          true,
+        )
+      : []),
+    ...result.cases.flatMap((item) => findingsFor(item, false)),
+  ];
+  const ruleIds = [...new Set(findings.map((finding) => finding.ruleId))];
+  // GitHub code scanning expects one security-severity per rule; use the
+  // strongest severity observed for it instead of a hardcoded CWE guess.
+  const severityByRule = new Map<string, string>();
+  for (const finding of findings) {
+    if (!finding.severity) continue;
+    const severity = securitySeverity(finding.severity);
+    if (Number(severity) > Number(severityByRule.get(finding.ruleId) ?? 0)) {
+      severityByRule.set(finding.ruleId, severity);
+    }
+  }
   const baselineUrl = result.baseline.request.url;
   const outcome = summarizeRun(result);
   const runErrorDetail = hasWorkingBaseline(result)
@@ -115,11 +223,18 @@ export function formatSarif(
               name: "BreakCurl",
               version: VERSION,
               informationUri: REPOSITORY_URI,
-              rules: ruleIds.map((id) => formatRule(id)),
+              rules: ruleIds.map((id) =>
+                formatRule(
+                  id,
+                  knownSecrets,
+                  severityByRule.get(id),
+                  findings.find((finding) => finding.ruleId === id)?.signal,
+                ),
+              ),
             },
           },
-          results: findings.map((item) =>
-            formatResult(item, baselineUrl, knownSecrets),
+          results: findings.map((finding) =>
+            formatResult(finding, baselineUrl, knownSecrets),
           ),
         },
       ],
@@ -129,54 +244,106 @@ export function formatSarif(
   )}\n`;
 }
 
-function primarySignal(item: CaseResult) {
-  return item.securitySignals?.find(
+function findingsFor(item: CaseResult, baseline: boolean): SarifFinding[] {
+  if (!["FAIL", "WARN", "ERROR"].includes(item.classification)) return [];
+  const signals = (item.securitySignals ?? []).filter(
     (signal) => signal.id !== "technology-header",
   );
+  // Response observations must not inherit a server/transport failure's
+  // classification or aggregate severity. Keep that primary outcome separate.
+  const operationalFailure =
+    item.classification === "ERROR" ||
+    (item.classification === "FAIL" &&
+      (item.response.status >= 500 ||
+        !signals.some((signal) => CONTRACT_FAILURE_SIGNALS.has(signal.id))));
+  const findings: SarifFinding[] = [];
+  if (signals.length === 0 || operationalFailure) {
+    findings.push({
+      item,
+      ruleId: baseline
+        ? "baseline-finding"
+        : `${item.mutation.category ?? "structure"}-finding`,
+      classification: item.classification,
+      ...(item.severity ? { severity: item.severity } : {}),
+      baseline,
+    });
+  }
+  for (const signal of signals) {
+    findings.push({
+      item,
+      ruleId: signal.id,
+      classification:
+        item.classification === "FAIL" &&
+        !operationalFailure &&
+        CONTRACT_FAILURE_SIGNALS.has(signal.id)
+          ? "FAIL"
+          : "WARN",
+      severity: signal.severity,
+      signal,
+      baseline,
+    });
+  }
+  return findings;
 }
 
-function ruleIdFor(item: CaseResult): string {
-  const signal = primarySignal(item)?.id;
-  if (signal) return signal;
-  return `${item.mutation.category ?? "structure"}-finding`;
-}
-
-function formatRule(id: string): Record<string, unknown> {
-  const rule = RULES[id] ?? { short: "BreakCurl check produced a finding." };
+function formatRule(
+  id: string,
+  knownSecrets: string[],
+  securitySeverityOverride?: string,
+  signal?: SecuritySignal,
+): Record<string, unknown> {
+  const builtInRule = Object.hasOwn(RULES, id) ? RULES[id] : undefined;
+  const rule = builtInRule ?? {
+    short: signal
+      ? redactText(englishText(signal.title), knownSecrets)
+      : "BreakCurl check produced a finding.",
+    ...(signal?.cwe ? { cwe: redactText(signal.cwe, knownSecrets) } : {}),
+  };
   return {
-    id,
+    id: sanitizedRuleId(id, knownSecrets),
     shortDescription: { text: rule.short },
     ...(rule.cwe ? { helpUri: cweUri(rule.cwe) } : {}),
     properties: {
-      ...(rule.cwe ? { "security-severity": securitySeverity(id) } : {}),
+      ...(rule.cwe
+        ? { "security-severity": securitySeverityOverride ?? "5.0" }
+        : {}),
     },
   };
 }
 
 function cweUri(cwe: string): string {
   const number = cwe.replace(/^CWE-/, "");
-  return `https://cwe.mitre.org/data/definitions/${number}.html`;
+  return `https://cwe.mitre.org/data/definitions/${encodeURIComponent(number)}.html`;
 }
 
-function securitySeverity(id: string): string {
-  return RULES[id]?.cwe === "CWE-306" ? "8.1" : "5.0";
+function securitySeverity(severity: "LOW" | "MEDIUM" | "HIGH"): string {
+  if (severity === "HIGH") return "8.1";
+  if (severity === "MEDIUM") return "5.0";
+  return "2.5";
 }
 
 function formatResult(
-  item: CaseResult,
+  finding: SarifFinding,
   baselineUrl: string,
   knownSecrets: string[],
 ): Record<string, unknown> {
+  const { item, signal } = finding;
   const description = redactText(
     englishText(item.mutation.description),
     knownSecrets,
   );
-  const reason = redactText(englishText(item.reason), knownSecrets);
-  const url = redactUrl(item.mutation.url ?? baselineUrl, knownSecrets);
-  const signal = primarySignal(item);
+  const reason = redactText(
+    englishText(
+      signal && !CONTRACT_FAILURE_SIGNALS.has(signal.id)
+        ? signal.title
+        : item.reason,
+    ),
+    knownSecrets,
+  );
+  const url = redactArtifactUrl(item.mutation.url ?? baselineUrl, knownSecrets);
   return {
-    ruleId: ruleIdFor(item),
-    level: levelFor(item.classification),
+    ruleId: sanitizedRuleId(finding.ruleId, knownSecrets),
+    level: levelFor(finding.classification),
     message: { text: `${description}: ${reason}` },
     locations: [
       {
@@ -187,20 +354,42 @@ function formatResult(
     ],
     partialFingerprints: {
       "breakcurlCaseId/v1": redactText(item.mutation.id, knownSecrets),
+      "breakcurlFindingId/v1": `${redactText(item.mutation.id, knownSecrets)}:${sanitizedRuleId(finding.ruleId, knownSecrets)}`,
     },
     properties: {
-      "breakcurl/classification": item.classification,
+      "breakcurl/classification": finding.classification,
       "breakcurl/category": item.mutation.category ?? "structure",
+      "breakcurl/source": finding.baseline ? "baseline" : "case",
       "breakcurl/http-status": item.response.status,
-      ...(item.severity ? { "breakcurl/severity": item.severity } : {}),
+      ...(finding.severity ? { "breakcurl/severity": finding.severity } : {}),
       ...(item.confidence ? { "breakcurl/confidence": item.confidence } : {}),
-      ...(signal?.cwe ? { "breakcurl/cwe": signal.cwe } : {}),
+      ...(signal?.cwe
+        ? { "breakcurl/cwe": redactText(signal.cwe, knownSecrets) }
+        : {}),
+      ...(signal?.owasp
+        ? { "breakcurl/owasp": redactText(signal.owasp, knownSecrets) }
+        : {}),
     },
   };
 }
 
 function levelFor(classification: string): "error" | "warning" | "note" {
-  if (classification === "FAIL") return "error";
+  if (classification === "FAIL" || classification === "ERROR") return "error";
   if (classification === "WARN") return "warning";
   return "note";
+}
+
+function sanitizedRuleId(id: string, knownSecrets: string[]): string {
+  return Object.hasOwn(RULES, id) ? id : redactText(id, knownSecrets);
+}
+
+function redactArtifactUrl(url: string, knownSecrets: string[]): string {
+  const redacted = redactUrl(url, knownSecrets);
+  const protocol = url.match(/^[a-z][a-z0-9+.-]*:/i)?.[0];
+  if (!protocol) return redacted;
+  // The URL scheme is syntax, even when a credential happens to be "https".
+  const redactedProtocol = redactText(protocol, knownSecrets);
+  return redacted.startsWith(redactedProtocol)
+    ? protocol + redacted.slice(redactedProtocol.length)
+    : redacted;
 }

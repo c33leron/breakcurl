@@ -13,7 +13,7 @@ inputs:
   profile:
     description: "Check profile: quick, negative, security, or full."
     required: false
-    default: "quick"
+    default: "security"
   max-cases:
     description: "Maximum number of checks (1-200). Empty means the profile default."
     required: false
@@ -39,7 +39,7 @@ inputs:
     required: false
     default: "breakcurl-output"
   breakcurl-version:
-    description: "breakcurl npm package version to run. JUnit and SARIF require 0.2.0+; HTML and auth contracts require 0.3.0+."
+    description: "breakcurl npm package version to run. Current attack probes and OWASP coverage require 0.4.0+; HTML and auth contracts require 0.3.0+."
     required: false
     default: "latest"
   upload-sarif:

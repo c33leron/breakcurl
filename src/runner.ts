@@ -49,6 +49,10 @@ export async function sendRequest(
 
     status = response.status;
     responseHeaders = Object.fromEntries(response.headers.entries());
+    // Header iteration can collapse duplicate cookies. Keep each cookie on
+    // its own line so the baseline audit checks every set of attributes.
+    const cookies = response.headers.getSetCookie();
+    if (cookies.length) responseHeaders["set-cookie"] = cookies.join("\n");
     const bodyResult = await readResponseBody(response);
     return {
       status,

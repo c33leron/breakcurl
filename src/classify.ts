@@ -7,6 +7,7 @@ import type {
   FindingSeverity,
   HttpResult,
   MutationCase,
+  ParsedCurl,
   SecuritySignal,
   TranslatableText,
 } from "./types.js";
@@ -93,6 +94,12 @@ function classifyHttpResult(
     };
   }
 
+  // JWT status checks require the same explicit authentication basis as
+  // ordinary auth probes. A successful status alone does not prove a bypass.
+  if (mutation.kind.startsWith("jwt-")) {
+    return classifyJwt(mutation, response);
+  }
+
   if (
     (mutation.category === "authentication" ||
       mutation.expectation === "auth-reject") &&
@@ -125,6 +132,24 @@ function classifyHttpResult(
       ),
       severity: "MEDIUM",
       confidence: "HIGH",
+    };
+  }
+
+  if (mutation.kind === "method-tamper") {
+    return classifyMethodTamper(mutation, response);
+  }
+
+  if (mutation.kind === "spec-probe") {
+    return classifySpecProbe(mutation, response);
+  }
+
+  if (mutation.kind === "privilege-field") {
+    return {
+      classification: "INFO",
+      reason: localized(
+        `Privilege-field probe returned HTTP ${response.status}; persistence and permission changes were not verified. An accepted request does not prove mass assignment.`,
+        `Проба привилегированного поля вернула HTTP ${response.status}; сохранение поля и изменение прав не проверялись. Успешный запрос не доказывает mass assignment.`,
+      ),
     };
   }
 
@@ -263,6 +288,189 @@ export function responseSchemaFingerprint(response: HttpResult): string | null {
     .slice(0, 16);
 }
 
+function classifyJwt(
+  mutation: MutationCase,
+  response: HttpResult,
+): ClassificationResult {
+  const expiryNote =
+    mutation.kind === "jwt-expired"
+      ? localized(
+          " Changing exp also invalidates the signature; expiry enforcement was not assessed.",
+          " Изменение exp также ломает подпись; проверка срока токена не оценивалась.",
+        )
+      : localized("", "");
+  if (response.status === 401 || response.status === 403) {
+    return {
+      classification: mutation.kind === "jwt-expired" ? "INFO" : "PASS",
+      reason: localized(
+        `The request carrying the modified JWT was rejected with HTTP ${response.status}; the rejecting control was not identified.${renderText(expiryNote, "en")}`,
+        `Запрос с изменённым JWT отклонён с HTTP ${response.status}; конкретный механизм отказа не установлен.${renderText(expiryNote, "ru")}`,
+      ),
+    };
+  }
+
+  if (isSuccessful(response.status)) {
+    const strict = mutation.expectation === "auth-reject";
+    return {
+      classification: strict ? "FAIL" : "WARN",
+      reason: localized(
+        strict
+          ? `The modified-JWT request returned HTTP ${response.status} instead of the required 401/403 under the declared sole-Bearer auth contract. Signature verification, identity and side effects were not independently verified.${renderText(expiryNote, "en")}`
+          : `The modified-JWT request returned HTTP ${response.status}; JWT-only authentication is not established. Public access or another credential may explain success; no signature bypass is proven.${renderText(expiryNote, "en")}`,
+        strict
+          ? `Запрос с изменённым JWT вернул HTTP ${response.status} вместо требуемого 401/403 по заявленному контракту с единственным Bearer. Проверка подписи, личность и побочные эффекты независимо не подтверждались.${renderText(expiryNote, "ru")}`
+          : `Запрос с изменённым JWT вернул HTTP ${response.status}; не установлено, что JWT — единственный источник авторизации. Ответ может объясняться публичным доступом или другим credential; обход подписи не доказан.${renderText(expiryNote, "ru")}`,
+      ),
+      severity: strict ? "HIGH" : "MEDIUM",
+      confidence: strict ? "HIGH" : "MEDIUM",
+      securitySignals: [
+        {
+          id: "jwt-auth-rejection-missing",
+          title: localized(
+            "Modified JWT received a successful HTTP status; review the auth contract",
+            "Запрос с изменённым JWT получил успешный HTTP-статус; проверьте auth-контракт",
+          ),
+          severity: strict ? "HIGH" : "MEDIUM",
+          cwe: "CWE-347",
+          owasp: "API2:2023",
+        },
+      ],
+    };
+  }
+
+  if (isClientError(response.status)) {
+    return {
+      classification: "WARN",
+      reason: localized(
+        `The modified-JWT request received HTTP ${response.status}; this does not identify the authentication control.${renderText(expiryNote, "en")}`,
+        `Запрос с изменённым JWT получил HTTP ${response.status}; это не определяет механизм проверки авторизации.${renderText(expiryNote, "ru")}`,
+      ),
+      severity: "LOW",
+      confidence: "HIGH",
+    };
+  }
+
+  return {
+    classification: "ERROR",
+    reason: localized(
+      `The tampered JWT probe returned unexpected HTTP ${response.status}.`,
+      `Проба подменённого JWT вернула неожиданный HTTP ${response.status}.`,
+    ),
+  };
+}
+
+function classifyMethodTamper(
+  mutation: MutationCase,
+  response: HttpResult,
+): ClassificationResult {
+  if (isSuccessful(response.status)) {
+    return {
+      classification: "WARN",
+      reason: localized(
+        `The endpoint accepted HTTP ${mutation.method} with HTTP ${response.status}; verify per-method authorization is intended.`,
+        `Endpoint принял HTTP ${mutation.method} с ответом ${response.status}; проверьте, что авторизация по методам предусмотрена.`,
+      ),
+      severity: "MEDIUM",
+      confidence: "MEDIUM",
+      securitySignals: [
+        {
+          id: "unexpected-method-accepted",
+          title: localized(
+            `Endpoint processed the request under an unexpected HTTP method (${mutation.method})`,
+            `Endpoint обработал запрос неожиданным HTTP-методом (${mutation.method})`,
+          ),
+          severity: "MEDIUM",
+          cwe: "CWE-284",
+          owasp: "API5:2023",
+        },
+      ],
+    };
+  }
+
+  return {
+    classification: "PASS",
+    reason: localized(
+      `The endpoint rejected the alternative method with HTTP ${response.status}.`,
+      `Endpoint отклонил альтернативный метод с HTTP ${response.status}.`,
+    ),
+  };
+}
+
+function classifySpecProbe(
+  mutation: MutationCase,
+  response: HttpResult,
+): ClassificationResult {
+  let looksLikeSpec = false;
+  if (isSuccessful(response.status)) {
+    try {
+      const document: unknown = JSON.parse(response.body);
+      if (isRecord(document)) {
+        const version = document.openapi ?? document.swagger;
+        const schema = isRecord(document.data)
+          ? document.data.__schema
+          : undefined;
+        looksLikeSpec =
+          (typeof version === "string" &&
+            /^(?:2|3)\./.test(version) &&
+            isRecord(document.paths)) ||
+          (isRecord(schema) && Array.isArray(schema.types));
+      }
+    } catch {
+      // A docs UI identifies its actual renderer, not a technology name in an error.
+      looksLikeSpec =
+        /text\/html/i.test(getHeader(response.headers, "content-type") ?? "") &&
+        /(?:SwaggerUIBundle\s*\(|<redoc\b|swagger-ui-bundle\.js)/i.test(
+          response.body,
+        );
+    }
+  }
+  if (looksLikeSpec) {
+    return {
+      classification: "WARN",
+      reason: localized(
+        `${mutation.path} is reachable without authentication and returns what looks like an API specification (HTTP ${response.status}).`,
+        `${mutation.path} доступен без аутентификации и возвращает похожее на спецификацию API тело (HTTP ${response.status}).`,
+      ),
+      severity: "MEDIUM",
+      confidence: "MEDIUM",
+      securitySignals: [
+        {
+          id: "api-spec-exposure",
+          title: localized(
+            "API specification is exposed without authentication",
+            "Спецификация API открыта без аутентификации",
+          ),
+          severity: "MEDIUM",
+          cwe: "CWE-200",
+          owasp: "API9:2023",
+        },
+      ],
+    };
+  }
+
+  if (isSuccessful(response.status)) {
+    return {
+      classification: "INFO",
+      reason: localized(
+        `${mutation.path} returned HTTP ${response.status}, but the body does not look like an API specification.`,
+        `${mutation.path} вернул HTTP ${response.status}, но тело не похоже на спецификацию API.`,
+      ),
+    };
+  }
+
+  return {
+    classification: "PASS",
+    reason: localized(
+      `${mutation.path} is not exposed without authentication (HTTP ${response.status}).`,
+      `${mutation.path} недоступен без аутентификации (HTTP ${response.status}).`,
+    ),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function classifyAuthentication(
   mutation: MutationCase,
   response: HttpResult,
@@ -303,6 +511,7 @@ function classifyAuthentication(
           ),
           severity: expectsAuth ? "HIGH" : "MEDIUM",
           cwe: "CWE-306",
+          owasp: "API2:2023",
         },
       ],
     };
@@ -408,7 +617,199 @@ function detectSecuritySignals(
       cwe: "CWE-200",
     });
   }
+
+  // Excessive data exposure (API3:2023) — scan the in-memory response body
+  // for password hashes and sensitive-named fields. Values never leave this
+  // function: only the signal identity is reported.
+  const exposure = scanBodyExposure(body);
+  if (exposure.passwordHash) {
+    signals.push({
+      id: "password-hash-exposure",
+      title: localized(
+        "Response exposes a password or secret hash (bcrypt/argon2/crypt)",
+        "Ответ раскрывает хеш пароля или секрета (bcrypt/argon2/crypt)",
+      ),
+      severity: "HIGH",
+      cwe: "CWE-200",
+      owasp: "API3:2023",
+    });
+  }
+  if (exposure.sensitiveField) {
+    signals.push({
+      id: "sensitive-field-response",
+      title: localized(
+        "Response returns a value for a sensitive-named field",
+        "Ответ возвращает значение чувствительного поля",
+      ),
+      severity: "MEDIUM",
+      cwe: "CWE-200",
+      owasp: "API3:2023",
+    });
+  }
+
   return signals;
+}
+
+const PASSWORD_HASH_PATTERN =
+  /^\$(?:2[aby]|argon2(?:id|i|d)?|[56](?:y|b)?)[$A-Za-z0-9+/,.]/;
+const SENSITIVE_RESPONSE_FIELD =
+  /(?:password|passwd|pwd|secret|private[_-]?key)/i;
+
+interface BodyExposure {
+  passwordHash: boolean;
+  sensitiveField: boolean;
+}
+
+function scanBodyExposure(body: string): BodyExposure {
+  const result: BodyExposure = { passwordHash: false, sensitiveField: false };
+  if (body.length === 0) return result;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return result;
+  }
+  walkJson(parsed, result);
+  return result;
+}
+
+function walkJson(value: unknown, result: BodyExposure): void {
+  if (Array.isArray(value)) {
+    for (const item of value) walkJson(item, result);
+    return;
+  }
+  if (typeof value === "string") {
+    if (PASSWORD_HASH_PATTERN.test(value)) result.passwordHash = true;
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (
+      SENSITIVE_RESPONSE_FIELD.test(key) &&
+      typeof child === "string" &&
+      child.trim() !== "" &&
+      !PASSWORD_HASH_PATTERN.test(child)
+    ) {
+      result.sensitiveField = true;
+    }
+    walkJson(child, result);
+  }
+}
+
+/**
+ * Security configuration audit (API8:2023) for the baseline response:
+ * CORS wildcards with credentials, missing cookie protections, missing HSTS,
+ * and verbose server headers. Runs once per run on the baseline so
+ * configuration observations do not repeat on every mutated response.
+ */
+export function auditResponseHeaders(
+  request: ParsedCurl,
+  response: HttpResult,
+): SecuritySignal[] {
+  const signals: SecuritySignal[] = [];
+  const allowOrigin = getHeader(
+    response.headers,
+    "access-control-allow-origin",
+  );
+  const allowCredentials = getHeader(
+    response.headers,
+    "access-control-allow-credentials",
+  );
+  if (allowOrigin?.trim() === "*" && allowCredentials?.trim() === "true") {
+    signals.push({
+      id: "cors-wildcard-credentials",
+      title: localized(
+        "CORS wildcard and credentials are incompatible; browsers block credentialed response access",
+        "CORS wildcard несовместим с credentials; браузеры блокируют чтение такого credentialed-ответа",
+      ),
+      severity: "LOW",
+      cwe: "CWE-942",
+      owasp: "API8:2023",
+    });
+  }
+
+  const setCookie = getHeader(response.headers, "set-cookie");
+  if (setCookie) {
+    const unsafeCookie = setCookie.split("\n").some((cookie) => {
+      const attributes = cookie
+        .split(";")
+        .slice(1)
+        .map((attribute) => attribute.trim().toLowerCase());
+      return !attributes.includes("secure") || !attributes.includes("httponly");
+    });
+    if (unsafeCookie) {
+      signals.push({
+        id: "cookie-flags-missing",
+        title: localized(
+          "Set-Cookie lacks the Secure or HttpOnly protection",
+          "Set-Cookie без защиты Secure или HttpOnly",
+        ),
+        severity: "MEDIUM",
+        cwe: "CWE-614",
+        owasp: "API8:2023",
+      });
+    }
+  }
+
+  const hsts = getHeader(response.headers, "strict-transport-security");
+  const maxAgeDirectives =
+    hsts
+      ?.split(";")
+      .map((part) => part.trim())
+      .filter((part) => /^max-age\b/i.test(part)) ?? [];
+  const maxAge =
+    maxAgeDirectives.length === 1
+      ? maxAgeDirectives[0]?.match(/^max-age\s*=\s*(?:"(\d+)"|(\d+))$/i)
+      : undefined;
+  const hstsEnabled = Boolean(maxAge && Number(maxAge[1] ?? maxAge[2]) > 0);
+  if (request.url.toLowerCase().startsWith("https:") && !hstsEnabled) {
+    signals.push({
+      id: "hsts-missing",
+      title: localized(
+        "HTTPS response has no valid positive HSTS max-age",
+        "HTTPS-ответ не содержит валидного положительного max-age HSTS",
+      ),
+      severity: "LOW",
+      cwe: "CWE-319",
+      owasp: "API8:2023",
+    });
+  }
+
+  const serverHeader = getHeader(response.headers, "server");
+  if (serverHeader && /\d/.test(serverHeader)) {
+    signals.push({
+      id: "server-version-header",
+      title: localized(
+        "Server header reveals implementation version",
+        "Заголовок Server раскрывает версию реализации",
+      ),
+      severity: "LOW",
+      cwe: "CWE-200",
+      owasp: "API8:2023",
+    });
+  }
+  return signals;
+}
+
+/** Baseline assessment: classify the baseline response and audit its configuration once. */
+export function classifyBaseline(
+  request: ParsedCurl,
+  response: HttpResult,
+): ClassificationResult {
+  const base = classifyCase(
+    {
+      id: "baseline",
+      path: "$",
+      description: "Baseline response",
+      kind: "custom-set",
+      category: "protocol",
+      expectation: "observe",
+      body: request.body,
+    },
+    response,
+  );
+  const configSignals = auditResponseHeaders(request, response);
+  return withSignals(base, configSignals);
 }
 
 function responseContractShape(response: HttpResult): string {

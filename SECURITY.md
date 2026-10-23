@@ -2,11 +2,15 @@
 
 ## Authorized, bounded testing
 
-Use BreakCurl only against systems you are authorized to test, with disposable test data. The ordinary CLI sends one working baseline and at most 200 sequential checks (15 by default). POST/PUT/PATCH/DELETE probes can execute real business operations, including when an authentication control is broken. Restoration of application data is the operator's responsibility; there is no hidden cleanup traffic.
+Use BreakCurl only against systems you are authorized to test, with disposable test data. The ordinary CLI sends one working baseline and at most 200 sequential checks (80 by default in the security profile). POST/PUT/PATCH/DELETE probes can execute real business operations, including when an authentication control is broken. Restoration of application data is the operator's responsibility; there is no hidden cleanup traffic.
 
 Before traffic, the CLI shows the sanitized target, profile, request budget, and checks. Interactive runs require confirmation; noninteractive runs require `--allow-mutation`. The self-contained `demo` command authorizes only its temporary loopback fixtures. `--dry-run` always sends zero requests and does not start a demo server.
 
 There are no retries, redirect following, concurrent probes, ID enumeration, brute force, SSRF, load/race testing, persistence, or automated destructive exploitation. The first HTTP 429 stops all subsequent requests. Ordinary checks also stop on transport failure. Response capture is bounded at 16 KiB; a truncated body is marked incomplete rather than called invalid JSON.
+
+## Attack probes
+
+JWT attacks reassemble an observed signed token from parsed segments only: an `alg=none` header, a removed signature, tampered claims with the original signature, and a changed `exp`. Changing `exp` also invalidates the signature, so expiry enforcement is not assessed. Successful JWT probes remain candidates unless `--expect-auth` and a complete sole-Authorization contract require HTTP rejection; other credentials may explain a successful response. No signing keys are guessed or used. Mass-assignment probes inject `isAdmin`/`role` fields and report the HTTP observation without claiming persistence or changed permissions. Spec-discovery probes send same-origin GETs to four well-known documentation paths with only a generated `Accept` header; no input headers or credentials are forwarded. Public specifications are observations for review, not inherently vulnerabilities. Method tampering is opt-in (`--attack-methods`) because alternative verbs can modify or delete data; it replays the operator's own working request with a different verb and nothing else. The configuration audit reads only headers of the baseline response the operator already sent.
 
 ## Authentication evidence
 

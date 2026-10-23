@@ -71,6 +71,7 @@ interface CliOptions {
   color: boolean;
   open: boolean;
   security?: boolean;
+  attackMethods?: boolean;
   expectAuth?: boolean;
   authBodyPath: string[];
   authContract?: string;
@@ -139,8 +140,8 @@ const program = new Command()
   })
   .description(
     m(
-      "Run controlled API and authentication checks from cURL, then open an HTML report.",
-      "Проверяет API и авторизацию по cURL и создает понятный HTML-отчет.",
+      "Attack an API from a cURL: auth/JWT tampering, mass assignment, injection probes, recon, and negative tests with an HTML report.",
+      "Атакует API по cURL: подмена auth/JWT, mass assignment, инъекционные пробы, recon и негативные тесты с HTML-отчётом.",
     ),
   )
   .argument(
@@ -162,8 +163,8 @@ const program = new Command()
   .option(
     "--profile <name>",
     m(
-      "profile: quick, negative, security, or full; defaults to quick",
-      "профиль: quick, negative, security или full; по умолчанию quick",
+      "profile: quick, negative, security, or full; defaults to security",
+      "профиль: quick, negative, security или full; по умолчанию security",
     ),
   )
   .option(
@@ -171,6 +172,13 @@ const program = new Command()
     m(
       "short alias for --profile security",
       "короткий alias для --profile security",
+    ),
+  )
+  .option(
+    "--attack-methods",
+    m(
+      "add HTTP method tampering cases; may modify or delete target data",
+      "добавить пробы подмены HTTP-методов; может изменить или удалить данные цели",
     ),
   )
   .option(
@@ -352,6 +360,7 @@ const program = new Command()
       expectAuth,
       authBodyPaths: [...(config.authBodyPaths ?? []), ...options.authBodyPath],
       ...(authContract ? { authContract } : {}),
+      ...(options.attackMethods ? { attackMethods: true } : {}),
       language,
     });
     const mutations = generatedChecks.cases;
@@ -395,6 +404,8 @@ const program = new Command()
         mutations.length,
         hasAuthProbes(mutations),
         language,
+        false,
+        hasAttackProbes(mutations),
       ))
     ) {
       throw new Error(
@@ -691,6 +702,7 @@ function rejectUnrelatedOptions(
   const unsupported =
     options.profile ||
     options.security ||
+    options.attackMethods ||
     options.maxCases ||
     options.expectAuth ||
     options.authContract ||
@@ -778,6 +790,7 @@ async function confirmRequests(
   includesAuthProbes: boolean,
   language: Language,
   idor = false,
+  includesAttackProbes = false,
 ): Promise<boolean> {
   if (
     !output.isTTY ||
@@ -817,10 +830,10 @@ async function confirmRequests(
         language,
         idor
           ? "BreakCurl will send up to 5 GET requests using two controlled identities. Confirm this is an authorized disposable fixture and the isolation contract is true. Continue? (y/N) "
-          : `BreakCurl will send 1 baseline request and ${caseCount} check requests.\nThis may modify data in the target system.${includesAuthProbes ? "\nAuth probes may execute the operation without authorization if the endpoint is vulnerable." : ""}\nContinue? (y/N) `,
+          : `BreakCurl will send 1 baseline request and ${caseCount} check requests.\nThis may modify data in the target system.${includesAuthProbes ? "\nAuth probes may execute the operation without authorization if the endpoint is vulnerable." : ""}${includesAttackProbes ? "\nAttack probes replay broken JWTs and alternative HTTP methods; method tampering may modify or delete data." : ""}\nContinue? (y/N) `,
         idor
           ? "BreakCurl отправит до 5 GET-запросов от двух тестовых пользователей. Подтвердите разрешенный одноразовый стенд и корректность контракта изоляции. Продолжить? (y/N) "
-          : `BreakCurl отправит 1 исходный запрос и ${caseCount} проверочных запросов.\nЭто может изменить данные в целевой системе.${includesAuthProbes ? "\nAuth-probes могут выполнить операцию без авторизации, если endpoint уязвим." : ""}\nПродолжить? (y/N) `,
+          : `BreakCurl отправит 1 исходный запрос и ${caseCount} проверочных запросов.\nЭто может изменить данные в целевой системе.${includesAuthProbes ? "\nAuth-probes могут выполнить операцию без авторизации, если endpoint уязвим." : ""}${includesAttackProbes ? "\nАтакующие пробы отправляют сломанные JWT и альтернативные HTTP-методы; подмена метода может изменить или удалить данные." : ""}\nПродолжить? (y/N) `,
       ),
     );
     return answer.trim().toLowerCase() === "y";
@@ -965,7 +978,7 @@ function resolveProfile(
   }
   const value = options.security
     ? "security"
-    : (options.profile ?? configProfile ?? "quick");
+    : (options.profile ?? configProfile ?? "security");
   if (!["quick", "negative", "security", "full"].includes(value)) {
     throw new Error(
       message(
@@ -1014,6 +1027,12 @@ function countCategories(
 
 function hasAuthProbes(cases: MutationCase[]): boolean {
   return cases.some((item) => item.category === "authentication");
+}
+
+function hasAttackProbes(cases: MutationCase[]): boolean {
+  return cases.some(
+    (item) => item.kind.startsWith("jwt-") || item.kind === "method-tamper",
+  );
 }
 
 function printDryRunPlan(cases: MutationCase[], language: Language): void {

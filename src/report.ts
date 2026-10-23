@@ -6,6 +6,7 @@ import { formatHtmlReport } from "./html-report.js";
 import { englishText, message, renderText } from "./i18n.js";
 import { formatJunitXml } from "./junit.js";
 import { requestForCase } from "./mutations.js";
+import { owaspCoverage } from "./owasp.js";
 import {
   collectSensitiveValues,
   redactText,
@@ -201,6 +202,27 @@ function formatReport(
         ]
       : [];
 
+  const coverage = owaspCoverage(result);
+  const coverageStatuses: Record<string, string> = {
+    tested: message(language, "tested", "проверено"),
+    partial: message(language, "partial", "частично"),
+    "not-tested": message(language, "not tested", "не проверялось"),
+    "out-of-scope": message(language, "out of scope", "вне охвата"),
+  };
+  const coverageSection = [
+    "",
+    message(
+      language,
+      "## OWASP API Security Top 10 (2023) coverage",
+      "## Покрытие OWASP API Security Top 10 (2023)",
+    ),
+    "",
+    ...coverage.map(
+      (entry) =>
+        `- **${entry.item} ${escapeCell(entry.title)}** — ${coverageStatuses[entry.status]}: ${escapeCell(redactText(renderText(entry.detail, language), knownSecrets))}`,
+    ),
+  ];
+
   return [
     message(language, "# BreakCurl report", "# Отчёт BreakCurl"),
     "",
@@ -281,6 +303,7 @@ function formatReport(
     message(language, "## Findings", "## Находки"),
     "",
     findingsSection,
+    ...coverageSection,
     ...notes,
     "",
     message(language, "## Summary", "## Итог"),
@@ -427,11 +450,18 @@ function formatJsonReport(
               title: redactText(englishText(signal.title), knownSecrets),
               severity: signal.severity,
               cwe: signal.cwe ? redactText(signal.cwe, knownSecrets) : null,
+              owasp: signal.owasp ?? null,
             })),
           }
         : null,
     },
     summary: countByClassification(result.cases),
+    owaspCoverage: owaspCoverage(result).map((entry) => ({
+      item: entry.item,
+      title: entry.title,
+      status: entry.status,
+      detail: redactText(englishText(entry.detail), knownSecrets),
+    })),
     notes: (result.notes ?? []).map((note) =>
       redactText(englishText(note), knownSecrets),
     ),
@@ -459,6 +489,7 @@ function formatJsonReport(
         title: redactText(englishText(signal.title), knownSecrets),
         severity: signal.severity,
         cwe: signal.cwe ? redactText(signal.cwe, knownSecrets) : null,
+        owasp: signal.owasp ?? null,
       })),
       replay: replayByCase.get(caseResult) ?? null,
     })),
